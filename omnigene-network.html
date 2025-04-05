@@ -1,0 +1,1865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMNIGENE - Gene Network Visualization</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        /* Base styles */
+        body {
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #333;
+            background: linear-gradient(135deg, #5f6cff, #a96eff);
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Landing page container */
+        .landing-container {
+            text-align: center;
+            transition: opacity 0.8s ease-in-out;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+        
+        h1 {
+            font-size: 6rem;
+            text-transform: uppercase;
+            color: transparent;
+            -webkit-text-stroke: 2px white;
+            margin-bottom: 5px;
+            font-family: 'Orbitron', sans-serif;
+        }
+        
+        .landing-container p {
+            color: white;
+            font-size: 2.3rem;
+            font-family: 'Times New Roman', Times, serif;
+            margin: 10px 0;
+        }
+        
+        .try-me-btn {
+            padding: 12px 25px;
+            font-size: 1.5rem;
+            border: none;
+            border-radius: 6px;
+            background-color: white;
+            color: #906cfc;
+            cursor: pointer;
+            margin-top: 69px;
+            transition: transform 0.2s;
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+        }
+        
+        .try-me-btn:hover {
+            transform: scale(1.05);
+        }
+        
+        /* Main application content */
+        .app-container {
+            display: none;
+            opacity: 0;
+            transition: opacity 0.8s ease-in-out;
+            flex-direction: column;
+            flex: 1;
+        }
+        
+        header {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+        
+        header h1 {
+            font-size: 2.5rem;
+            margin: 0;
+        }
+        
+        .subtitle {
+            margin-top: 5px;
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+        
+        /* Search panel */
+        .search-panel {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            max-width: 800px;
+            margin: 20px auto;
+            width: 90%;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .input-group {
+            display: flex;
+            flex: 1;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 15px;
+            border: none;
+            border-radius: 6px 0 0 6px;
+            font-size: 16px;
+            outline: none;
+            background: rgba(255, 255, 255, 0.9);
+        }
+        
+        .search-btn {
+            background: white;
+            color: #906cfc;
+            border: none;
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 16px;
+            border-radius: 0 6px 6px 0;
+            font-weight: 600;
+        }
+        
+        .search-btn:hover {
+            background: #f0f0f0;
+            transform: scale(1.02);
+        }
+        
+        /* Main content layout */
+        .main-content {
+            display: flex;
+            flex: 1;
+            max-width: 1400px;
+            margin: 20px auto;
+            width: 90%;
+            gap: 20px;
+            align-items: stretch;
+        }
+        
+        /* Panels */
+        .left-panel, .right-panel, .graph-container {
+            height: 600px !important;
+            max-height: 600px !important;
+            min-height: 600px !important;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+        }
+        
+        .left-panel, .right-panel {
+            width: 300px;
+            min-width: 300px;
+            max-width: 300px;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            flex-grow: 0;
+        }
+        
+        .graph-container {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            position: relative;
+            height: 600px;
+            min-width: 600px;
+            overflow: hidden;
+        }
+        
+        .gene-info, .drug-cards {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+            border-radius: 8px;
+            height: 100%;
+            max-height: 100%;
+            box-sizing: border-box;
+        }
+        
+        .gene-title {
+            color: #2c3e50;
+            margin-top: 0;
+            border-bottom: 2px solid rgba(0, 0, 0, 0.1);
+            padding-bottom: 10px;
+            font-family: 'Orbitron', sans-serif;
+        }
+        
+        .ko-header, .diseases-header, .drugs-header {
+            color: #5f6cff;
+            font-weight: 600;
+            margin: 15px 0 5px 0;
+        }
+        
+        .ko-list, .diseases-list {
+            list-style-type: disc;
+            padding-left: 20px;
+            margin: 5px 0;
+        }
+        
+        .ko-list li, .diseases-list li {
+            margin-bottom: 5px;
+        }
+        
+        .disease-item {
+            color: #e74c3c;
+        }
+        
+        /* Drug cards */
+        .drug-card {
+            background: rgba(255, 255, 255, 0.8);
+            border-left: 4px solid #5f6cff;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 15px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .drug-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .drug-name {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+        
+        .drug-diseases {
+            font-size: 0.9em;
+        }
+        
+        /* New tooltip implementation */
+        #new-tooltip {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            max-width: 250px;
+            z-index: 10000;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+            text-align: left;
+        }
+        
+        /* Loading indicator */
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            display: none;
+            border-radius: 8px;
+            flex-direction: column;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(95, 108, 255, 0.2);
+            border-top: 5px solid #5f6cff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        /* Progress bar styles */
+        .progress-container {
+            width: 80%;
+            max-width: 300px;
+            background-color: rgba(255, 255, 255, 0.5);
+            border-radius: 8px;
+            overflow: hidden;
+            height: 20px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+        
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #5f6cff, #a96eff);
+            transition: width 0.3s ease;
+            border-radius: 8px;
+        }
+        
+        .progress-text {
+            font-size: 14px;
+            color: #333;
+            margin-top: 5px;
+            font-weight: bold;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Graph elements */
+        svg {
+            width: 600px;
+            height: 600px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            margin: auto;
+        }
+        
+        .node {
+            fill: #5f6cff;
+            cursor: pointer;
+            transition: fill 0.3s, r 0.3s;
+            filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.3));
+        }
+        
+        .node.center {
+            fill: #e74c3c;
+        }
+        
+        .node:hover {
+            fill: #2ecc71;
+        }
+        
+        .link {
+            stroke: rgba(255, 255, 255, 0.6);
+            stroke-width: 4;
+            transition: stroke 0.3s, stroke-width 0.3s;
+        }
+        
+        .link:hover {
+            stroke: white;
+            stroke-width: 6;
+        }
+        
+        .link.activation {
+            stroke: #2ecc71;
+        }
+        
+        .link.inhibition {
+            stroke: #e74c3c;
+        }
+        
+        .marker-activation {
+            fill: #2ecc71;
+        }
+        
+        .marker-inhibition {
+            fill: #e74c3c;
+        }
+        
+        .node-label {
+            fill: white;
+            font-size: 14px;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            pointer-events: none;
+            font-weight: bold;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+        
+        .status-message {
+            display: none; /* Hide status message */
+        }
+        
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            color: white;
+        }
+        
+        .empty-state svg {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 20px;
+            fill: rgba(255, 255, 255, 0.7);
+        }
+        
+        .graph-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        /* Fade-in Animation Classes */
+        .fade-in {
+            opacity: 0;
+            transition: opacity 0.8s ease-in-out;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 1200px) {
+            .main-content {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .left-panel, .right-panel {
+                width: 90%;
+                min-width: auto;
+                max-width: 600px;
+                margin-bottom: 20px;
+                height: auto;
+                min-height: 300px;
+            }
+            
+            .graph-container {
+                width: 90%;
+                max-width: 600px;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 3rem;
+                -webkit-text-stroke: 1px white;
+            }
+            
+            .landing-container p {
+                font-size: 1.5rem;
+            }
+            
+            .try-me-btn {
+                font-size: 1.2rem;
+                margin-top: 40px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Landing Page -->
+    <div class="landing-container" id="landing-container">
+        <h1>OMNIGENE</h1>
+        <p>"All the genes, one place"</p>
+        <button class="try-me-btn" id="try-me-btn">Try me🧬</button>
+    </div>
+    
+    <!-- Main Application -->
+    <div class="app-container" id="app-container">
+        <header>
+            <h1>OMNIGENE</h1>
+            <div class="subtitle">Gene Network Visualization</div>
+        </header>
+        
+        <div class="search-panel">
+            <div class="input-group">
+                <input type="text" id="gene-input" placeholder="Enter gene code (e.g., hsa:5747)" value="">
+                <button class="search-btn" id="search-btn">Visualize</button>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="gene-info" id="gene-info">
+                    <h3 class="gene-title">Gene Information</h3>
+                    <p>Select a gene to view details</p>
+                </div>
+            </div>
+            
+            <div class="graph-container">
+                <div id="loading">
+                    <div class="spinner"></div>
+                    <div class="progress-container">
+                        <div class="progress-bar" id="progress-bar"></div>
+                    </div>
+                    <div class="progress-text" id="progress-text">Loading...</div>
+                </div>
+                
+                <div id="empty-state" class="empty-state">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+                    </svg>
+                    <p>Enter a gene code above to visualize its network</p>
+                </div>
+                
+                <div id="new-tooltip"></div>
+                <div class="graph-wrapper">
+                    <svg id="graph" style="display: none;"></svg>
+                </div>
+                <div class="status-message" id="status-message"></div>
+            </div>
+            
+            <div class="right-panel">
+                <div class="drug-cards" id="drug-cards">
+                    <h3 class="gene-title">Compatible Drugs</h3>
+                    <p>Hover over a gene node to view compatible drugs</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="kegg-gene-drug-finder.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // DOM elements - landing page
+            const tryMeBtn = document.getElementById('try-me-btn');
+            const landingContainer = document.getElementById('landing-container');
+            const appContainer = document.getElementById('app-container');
+            
+            // DOM elements - application
+            const geneInput = document.getElementById('gene-input');
+            const searchBtn = document.getElementById('search-btn');
+            const graph = document.getElementById('graph');
+            const tooltip = document.getElementById('tooltip');
+            const newTooltip = document.getElementById('new-tooltip');
+            const geneInfo = document.getElementById('gene-info');
+            const drugCards = document.getElementById('drug-cards');
+            const loading = document.getElementById('loading');
+            const emptyState = document.getElementById('empty-state');
+            const statusMessage = document.getElementById('status-message');
+            const progressBar = document.getElementById('progress-bar');
+            const progressText = document.getElementById('progress-text');
+            
+            // Track current network rendering request
+            let currentRenderRequest = null;
+            let currentApiRequests = [];
+            
+            // Progress tracking
+            let currentProgressPercent = 0;
+            let currentOperationName = "Starting...";
+            let totalWorkEstimate = 0;
+            let completedWork = 0;
+            
+            // Define work units for different operations
+            const WORK_UNITS = {
+                GENE_VERIFICATION: 5,
+                BASIC_INFO_FETCHING: 15,
+                BASIC_INFO_PROCESSING: 10,
+                DRUG_DETAILS: 15,
+                PATHWAY_ANALYSIS: 10,
+                RELATED_GENES: 15,
+                GENE_DETAILS: 20,
+                FINALIZATION: 5,
+                RENDERING: 5
+            };
+            
+            // Update progress bar with smooth transition
+            function updateProgress(operation, message, incrementValue = 0) {
+                if (progressBar && progressText) {
+                    if (incrementValue === 0) {
+                        // Starting a new operation
+                        currentOperationName = message || operation;
+                    } else {
+                        // Incrementing progress within an operation
+                        completedWork += incrementValue;
+                        const newPercent = Math.min(Math.round((completedWork / totalWorkEstimate) * 100), 99);
+                        
+                        // Only update if we're moving forward
+                        if (newPercent > currentProgressPercent) {
+                            currentProgressPercent = newPercent;
+                            progressBar.style.width = `${currentProgressPercent}%`;
+                            progressText.textContent = `${currentOperationName} (${currentProgressPercent}%)`;
+                        }
+                    }
+                }
+            }
+            
+            // Mark operation as complete (100%)
+            function completeProgress() {
+                currentProgressPercent = 100;
+                progressBar.style.width = `100%`;
+                progressText.textContent = `Complete (100%)`;
+            }
+            
+            // Landing page transition
+            tryMeBtn.addEventListener('click', function() {
+                landingContainer.style.opacity = '0';
+                setTimeout(() => {
+                    landingContainer.style.display = 'none';
+                    appContainer.style.display = 'flex';
+                    
+                    setTimeout(() => {
+                        appContainer.style.opacity = '1';
+                    }, 50);
+                }, 800);
+            });
+            
+            // SVG dimensions - fixed position
+            const svgWidth = 600;
+            const svgHeight = 600;
+            const centerX = svgWidth / 2;
+            const centerY = svgHeight / 2;
+            
+            // Initialize KEGG API
+            const keggApi = new KeggAPI();
+            
+            // Add rate limiting and parallel request handling
+            const API_RATE_LIMIT = 3; // Maximum 3 requests per second
+            const API_WINDOW = 1000; // 1 second window
+            let apiRequestTimestamps = [];
+            let pendingRequests = [];
+            
+            // Process queue of API requests at controlled rate
+            function processApiQueue() {
+                if (pendingRequests.length === 0) return;
+                
+                // Clean up old timestamps (older than 1 second)
+                const now = Date.now();
+                apiRequestTimestamps = apiRequestTimestamps.filter(ts => now - ts < API_WINDOW);
+                
+                // Check if we can make more requests
+                while (pendingRequests.length > 0 && apiRequestTimestamps.length < API_RATE_LIMIT) {
+                    const nextRequest = pendingRequests.shift();
+                    
+                    // Add timestamp for rate limiting
+                    apiRequestTimestamps.push(Date.now());
+                    
+                    // Execute the request
+                    nextRequest.execute()
+                        .then(response => {
+                            nextRequest.resolve(response);
+                        })
+                        .catch(error => {
+                            nextRequest.reject(error);
+                        })
+                        .finally(() => {
+                            // Schedule next queue processing
+                            setTimeout(processApiQueue, Math.ceil(API_WINDOW / API_RATE_LIMIT));
+                        });
+                }
+                
+                // If we still have pending requests but hit rate limit,
+                // schedule next processing attempt
+                if (pendingRequests.length > 0) {
+                    setTimeout(processApiQueue, Math.ceil(API_WINDOW / API_RATE_LIMIT));
+                }
+            }
+            
+            // Override the fetchData method with our rate-limited version (no caching)
+            const originalFetchData = keggApi.fetchData;
+            keggApi.fetchData = function(url) {
+                // Increment progress for each API request
+                updateProgress(null, null, 1); // Add 1 work unit per request
+                
+                // Return a new promise for this request
+                return new Promise((resolve, reject) => {
+                    const controller = new AbortController();
+                    const signal = controller.signal;
+                    const requestInfo = { url, controller };
+                    currentApiRequests.push(requestInfo);
+                    
+                    // Create execution function
+                    const execute = async () => {
+                        try {
+                            const startTime = performance.now();
+                            const response = await originalFetchData.call(keggApi, url);
+                            const fetchTime = performance.now() - startTime;
+                            
+                            // Remove from current requests
+                            currentApiRequests = currentApiRequests.filter(req => req.url !== url);
+                            
+                            // Log performance metrics
+                            console.log(`API fetch: ${url} - ${fetchTime.toFixed(2)}ms`);
+                            
+                            return response;
+                        } catch (error) {
+                            // Remove from current requests
+                            currentApiRequests = currentApiRequests.filter(req => req.url !== url);
+                            
+                            console.error("API request failed:", url, error);
+                            throw error;
+                        }
+                    };
+                    
+                    // Add to pending requests queue
+                    pendingRequests.push({
+                        url,
+                        execute,
+                        resolve,
+                        reject,
+                        controller
+                    });
+                    
+                    // Start processing queue if needed
+                    processApiQueue();
+                });
+            };
+            
+            // Enhanced version of getRelatedGenesAndDrugs with parallel API calls
+            const originalGetRelatedGenesAndDrugs = keggApi.getRelatedGenesAndDrugs;
+            keggApi.getRelatedGenesAndDrugs = async function(geneCode) {
+                try {
+                    const formattedGeneCode = geneCode.includes(':') ? geneCode : `hsa:${geneCode}`;
+                    
+                    // Get gene name to verify it exists - must be sequential
+                    updateProgress("GENE_VERIFICATION", "Verifying gene...");
+                    debug(`Fetching gene info for ${formattedGeneCode}`);
+                    const geneName = await this.getGeneName(formattedGeneCode);
+                    updateProgress(null, null, WORK_UNITS.GENE_VERIFICATION);
+                    
+                    if (geneName === "Unknown") {
+                        debug(`Gene ${formattedGeneCode} not found`);
+                        return { error: "Invalid Gene", message: `Gene ${geneCode} not found` };
+                    }
+                    
+                    debug(`Processing gene: ${formattedGeneCode} (${geneName})`);
+                    
+                    // Start multiple API calls in parallel
+                    updateProgress("BASIC_INFO_FETCHING", "Fetching basic gene data...");
+                    const [geneKO, geneDiseases, pathwaysResponse, drugsResponse] = await Promise.all([
+                        this.getGeneKO(formattedGeneCode),                      // KO information
+                        this.getGeneDiseases(formattedGeneCode),                // Disease associations
+                        this.fetchData(`https://rest.kegg.jp/link/pathway/${formattedGeneCode}`), // Pathways
+                        this.fetchData(`https://rest.kegg.jp/link/drug/${formattedGeneCode}`)     // Drugs
+                    ]);
+                    updateProgress(null, null, WORK_UNITS.BASIC_INFO_FETCHING);
+                    
+                    debug(`Completed parallel requests for ${formattedGeneCode}`);
+                    updateProgress("BASIC_INFO_PROCESSING", "Processing base gene data...");
+                    
+                    // Process pathways data
+                    let pathways = [];
+                    if (pathwaysResponse && pathwaysResponse.trim() !== '') {
+                        pathways = pathwaysResponse.trim().split('\n')
+                            .map(line => {
+                                const parts = line.split('\t');
+                                return parts.length >= 2 ? parts[1] : null;
+                            })
+                            .filter(Boolean);
+                        
+                        debug(`Found ${pathways.length} pathways for gene: ${formattedGeneCode}`);
+                    } else {
+                        debug(`No pathway data found for ${formattedGeneCode}`);
+                    }
+                    
+                    // Process drugs data
+                    let baseDrugs = [];
+                    let drugsWithInfo = [];
+                    
+                    if (drugsResponse && drugsResponse.trim() !== '') {
+                        baseDrugs = drugsResponse.trim().split('\n')
+                            .map(line => {
+                                const parts = line.split('\t');
+                                return parts.length >= 2 ? parts[1] : null;
+                            })
+                            .filter(Boolean);
+                        
+                        debug(`Found ${baseDrugs.length} drugs for base gene ${formattedGeneCode}`);
+                        
+                        // Fetch drug details in parallel if we found drugs
+                        if (baseDrugs.length > 0) {
+                            updateProgress("DRUG_DETAILS", "Fetching drug details...");
+                            drugsWithInfo = await this._fetchDrugDetails(baseDrugs);
+                            debug(`Processed ${drugsWithInfo.length} drugs with details for base gene: ${formattedGeneCode}`);
+                            updateProgress(null, null, WORK_UNITS.DRUG_DETAILS);
+                        }
+                    } else {
+                        debug(`No drug information available for gene: ${formattedGeneCode}`);
+                    }
+                    
+                    updateProgress(null, null, WORK_UNITS.BASIC_INFO_PROCESSING);
+                    
+                    // If no pathway data, return early with available information
+                    if (pathways.length === 0) {
+                        updateProgress("FINALIZATION", "Finalizing results...");
+                        updateProgress(null, null, WORK_UNITS.FINALIZATION);
+                        return { 
+                            geneName, 
+                            geneKO,
+                            diseases: geneDiseases,
+                            drugs: baseDrugs, 
+                            drugsWithInfo,
+                            relatedGenes: {},
+                        };
+                    }
+                    
+                    // Process related genes from pathways - use a more parallel approach
+                    updateProgress("PATHWAY_ANALYSIS", "Analyzing pathways...");
+                    const relatedGenes = {};
+                    const pathwaysToProcess = pathways.slice(0, 2); // Limit to first 2 pathways
+                    
+                    debug(`Processing ${pathwaysToProcess.length} pathways for related genes`);
+                    
+                    // First, get all pathway data in parallel
+                    const pathwayInfoPromises = pathwaysToProcess.map(pathway => {
+                        // Ensure pathway has the correct format
+                        const formattedPathway = pathway.includes(':') ? pathway : 
+                            (pathway.match(/^hsa\d+$/) ? `path:${pathway}` : pathway);
+                        
+                        // Get pathway info
+                        return this.fetchData(`https://rest.kegg.jp/get/${formattedPathway}`)
+                            .then(pathwayInfoResponse => {
+                                // Extract the pathway ID without the "path:" prefix
+                                const pathwayId = pathway.includes(':') ? pathway.split(':')[1] : pathway;
+                                
+                                // Get pathway name
+                                let pathwayName = formattedPathway;
+                                if (pathwayInfoResponse) {
+                                    const nameMatch = pathwayInfoResponse.match(/NAME\s+(.*?)\n/);
+                                    if (nameMatch) pathwayName = nameMatch[1].trim();
+                                }
+                                
+                                return {
+                                    pathway: formattedPathway,
+                                    pathwayId,
+                                    pathwayName
+                                };
+                            });
+                    });
+                    
+                    const pathwayInfoResults = await Promise.all(pathwayInfoPromises);
+                    updateProgress(null, null, WORK_UNITS.PATHWAY_ANALYSIS);
+                    updateProgress("RELATED_GENES", "Finding related genes...");
+                    
+                    // Then get genes for all pathways in parallel
+                    const pathwayGenesPromises = pathwayInfoResults.map(pathwayInfo => 
+                        this.fetchData(`https://rest.kegg.jp/link/hsa/${pathwayInfo.pathwayId}`)
+                            .then(pathwayGenesResponse => {
+                                // Parse gene entries from the response
+                                const genesInPathway = pathwayGenesResponse && pathwayGenesResponse.trim() !== '' ? 
+                                    pathwayGenesResponse.trim().split('\n')
+                                        .map(line => {
+                                            const parts = line.split('\t');
+                                            if (parts.length >= 2 && parts[1].includes('hsa:')) {
+                                                return parts[1]; // The second column has the gene ID
+                                            }
+                                            return null;
+                                        })
+                                        .filter(gene => gene && gene !== formattedGeneCode)
+                                    : [];
+                                
+                                return {
+                                    ...pathwayInfo,
+                                    genesInPathway
+                                };
+                            })
+                    );
+                    
+                    const pathwayGenesResults = await Promise.all(pathwayGenesPromises);
+                    updateProgress(null, null, WORK_UNITS.RELATED_GENES);
+                    updateProgress("GENE_DETAILS", "Analyzing related genes...");
+                    
+                    // Now process up to 3 genes per pathway in parallel
+                    const geneDetailsPromises = [];
+                    
+                    for (const pathwayResult of pathwayGenesResults) {
+                        const genesToProcess = pathwayResult.genesInPathway.slice(0, 3);
+                        debug(`Processing genes from pathway ${pathwayResult.pathwayName}: ${genesToProcess.join(', ')}`);
+                        
+                        for (const relatedGene of genesToProcess) {
+                            // Skip if already processed
+                            if (relatedGenes[relatedGene]) {
+                                debug(`Gene ${relatedGene} already processed, skipping`);
+                                continue;
+                            }
+                            
+                            // Pre-initialize gene entry
+                            relatedGenes[relatedGene] = {
+                                geneName: "Loading...",
+                                relation: "Pathway",
+                                pathway: pathwayResult.pathwayName,
+                                ko: [],
+                                diseases: [],
+                                drugs: [],
+                                drugsWithInfo: [],
+                                relationshipType: relatedGene.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 2 === 0 ? 
+                                    'activation' : 'inhibition',
+                                hasSharedDisease: false,
+                                sharedDiseases: []
+                            };
+                            
+                            // Gather gene details in parallel
+                            const geneDetailsPromise = Promise.all([
+                                this.getGeneName(relatedGene),
+                                this.getGeneKO(relatedGene),
+                                this.getGeneDiseases(relatedGene),
+                                this.fetchData(`https://rest.kegg.jp/link/drug/${relatedGene}`)
+                            ]).then(async ([relatedGeneName, relatedGeneKO, relatedGeneDiseases, relatedDrugsResponse]) => {
+                                if (relatedGeneName === "Unknown") {
+                                    debug(`Unable to get name for gene ${relatedGene}, skipping`);
+                                    delete relatedGenes[relatedGene];
+                                    return;
+                                }
+                                
+                                // Parse drug codes
+                                let drugCodes = [];
+                                if (relatedDrugsResponse && relatedDrugsResponse.trim()) {
+                                    drugCodes = relatedDrugsResponse.trim().split('\n')
+                                        .map(line => {
+                                            const parts = line.split('\t');
+                                            if (parts.length >= 2 && (parts[1].startsWith('dr:') || parts[1].match(/^D\d+$/))) {
+                                                return parts[1];
+                                            }
+                                            return null;
+                                        })
+                                        .filter(Boolean);
+                                }
+                                
+                                // Get drug details if we have any
+                                let geneRelatedDrugsWithInfo = [];
+                                if (drugCodes.length > 0) {
+                                    geneRelatedDrugsWithInfo = await this._fetchDrugDetails(drugCodes);
+                                    
+                                    // Apply additional repurposing score factors based on gene relationships
+                                    geneRelatedDrugsWithInfo = geneRelatedDrugsWithInfo.map(drug => {
+                                        // Get the base score set in _fetchDrugDetails method
+                                        let repurposingScore = drug.repurposingScore || 2;
+                                        
+                                        // +8 if genes share diseases
+                                        const hasSharedDisease = relatedGeneDiseases.some(disease => 
+                                            geneDiseases.some(gDisease => gDisease.code === disease.code));
+                                        if (hasSharedDisease) {
+                                            repurposingScore += 8;
+                                            debug(`+8 score for ${drug.name} - genes share diseases`);
+                                        }
+                                        
+                                        // +2 if activation relationship, -1 if inhibition
+                                        const relationshipType = relatedGene.split('').reduce((acc, char) => 
+                                            acc + char.charCodeAt(0), 0) % 2 === 0 ? 'activation' : 'inhibition';
+                                        
+                                        if (relationshipType === 'activation') {
+                                            repurposingScore += 2;
+                                            debug(`+2 score for ${drug.name} - activation relationship`);
+                                        } else {
+                                            repurposingScore -= 1;
+                                            debug(`-1 score for ${drug.name} - inhibition relationship`);
+                                        }
+                                        
+                                        drug.repurposingScore = repurposingScore;
+                                        return drug;
+                                    });
+                                }
+                                
+                                // Update gene entry with complete information
+                                relatedGenes[relatedGene] = {
+                                    geneName: relatedGeneName,
+                                    relation: "Pathway",
+                                    pathway: pathwayResult.pathwayName,
+                                    ko: relatedGeneKO,
+                                    diseases: relatedGeneDiseases,
+                                    drugs: drugCodes,
+                                    drugsWithInfo: geneRelatedDrugsWithInfo,
+                                    relationshipType: relatedGene.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 2 === 0 ? 
+                                        'activation' : 'inhibition',
+                                    hasSharedDisease: relatedGeneDiseases.some(disease => 
+                                        geneDiseases.some(gDisease => gDisease.code === disease.code)),
+                                    sharedDiseases: relatedGeneDiseases.filter(disease => 
+                                        geneDiseases.some(gDisease => gDisease.code === disease.code))
+                                };
+                                
+                                debug(`Completed data for related gene ${relatedGene} (${relatedGeneName})`);
+                            }).catch(geneError => {
+                                debug(`Error processing related gene ${relatedGene}: ${geneError.message}`);
+                                // Keep a basic entry even if error
+                                relatedGenes[relatedGene] = {
+                                    geneName: relatedGene,
+                                    relation: "Pathway",
+                                    pathway: pathwayResult.pathwayName,
+                                    ko: [],
+                                    diseases: [],
+                                    drugs: [],
+                                    drugsWithInfo: [],
+                                    relationshipType: relatedGene.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 2 === 0 ? 
+                                        'activation' : 'inhibition',
+                                    hasSharedDisease: false,
+                                    sharedDiseases: []
+                                };
+                            });
+                            
+                            geneDetailsPromises.push(geneDetailsPromise);
+                        }
+                    }
+                    
+                    // Wait for all gene details to complete
+                    await Promise.all(geneDetailsPromises);
+                    updateProgress(null, null, WORK_UNITS.GENE_DETAILS);
+                    
+                    updateProgress("FINALIZATION", "Finalizing network data...");
+                    updateProgress(null, null, WORK_UNITS.FINALIZATION);
+                    
+                    debug(`Completed processing with ${Object.keys(relatedGenes).length} related genes`);
+                    
+                    // Create final result
+                    return {
+                        geneName,
+                        geneKO,
+                        diseases: geneDiseases,
+                        drugs: baseDrugs,
+                        drugsWithInfo,
+                        relatedGenes
+                    };
+                } catch (error) {
+                    debug(`Error getting related genes and drugs: ${error.message}`);
+                    return { error: "Processing Error", message: error.message };
+                }
+            };
+            
+            // Enhanced _fetchDrugDetails to use parallel requests
+            const originalFetchDrugDetails = keggApi._fetchDrugDetails;
+            keggApi._fetchDrugDetails = async function(drugCodes) {
+                // Validate drug codes and format properly
+                const validDrugCodes = drugCodes.filter(code => 
+                    code && (code.startsWith('dr:') || code.match(/^D\d+$/))
+                ).map(code => 
+                    code.startsWith('dr:') ? code : `dr:${code}`
+                );
+                
+                debug(`Fetching details for ${validDrugCodes.length} drugs in parallel`);
+                
+                if (validDrugCodes.length === 0) {
+                    return [];
+                }
+                
+                // Process drugs in parallel with rate limiting
+                const drugDetailsPromises = validDrugCodes.map(formattedDrugCode => {
+                    return this.fetchData(`https://rest.kegg.jp/get/${formattedDrugCode}`)
+                        .then(drugResponse => {
+                            if (!drugResponse || drugResponse.trim() === '') {
+                                debug(`No data received for drug ${formattedDrugCode}`);
+                                return null;
+                            }
+                            
+                            // Initialize drug info
+                            const drugInfo = {
+                                code: formattedDrugCode,
+                                name: formattedDrugCode,
+                                diseases: []
+                            };
+                            
+                            // Extract drug name
+                            const nameMatch = drugResponse.match(/NAME\s+(.*?)(?:\n|$)/);
+                            if (nameMatch) {
+                                drugInfo.name = this.cleanText(nameMatch[1], "NAME");
+                            }
+                            
+                            // Extract the entire DISEASE section
+                            const diseaseSectionMatch = drugResponse.match(/DISEASE([\s\S]*?)(?=\n[A-Z]+|\n\n|$)/);
+                            
+                            if (diseaseSectionMatch) {
+                                const entireDiseaseSection = diseaseSectionMatch[0];
+                                
+                                // Process all lines in the disease section
+                                const diseaseLines = entireDiseaseSection.split('\n')
+                                    .filter(line => line.trim().length > 0);
+                                
+                                // Track diseases we've already processed (to avoid duplicates)
+                                const processedCodes = new Set();
+                                
+                                // Process each line for disease information
+                                for (const line of diseaseLines) {
+                                    const dsMatch = line.match(/\[DS:([\w\d]+)\]/);
+                                    if (dsMatch) {
+                                        const diseaseCode = dsMatch[1];
+                                        
+                                        // Skip if we've already processed this disease code
+                                        if (processedCodes.has(diseaseCode)) continue;
+                                        processedCodes.add(diseaseCode);
+                                        
+                                        // Extract disease name - everything before the DS code
+                                        let diseaseName = line.replace(/^DISEASE\s+/, '')
+                                                            .replace(/\[DS:[\w\d]+\].*$/, '')
+                                                            .trim();
+                                        
+                                        // Handle lines where the disease code comes first (indented lines)
+                                        if (!diseaseName && line.trim().startsWith('[')) {
+                                            // Try to find the disease name in previous lines
+                                            const lineIndex = diseaseLines.indexOf(line);
+                                            if (lineIndex > 0) {
+                                                diseaseName = diseaseLines[lineIndex - 1]
+                                                    .replace(/^DISEASE\s+/, '')
+                                                    .trim();
+                                            }
+                                        }
+                                        
+                                        // Remove any parenthesized text at the end of the disease name
+                                        diseaseName = diseaseName.replace(/\s+\([^)]*\)$/, '').trim();
+                                        
+                                        // Add the disease to our list
+                                        if (diseaseName) {
+                                            drugInfo.diseases.push({
+                                                code: diseaseCode,
+                                                name: diseaseName
+                                            });
+                                        } else {
+                                            // Fallback if we couldn't extract a name
+                                            drugInfo.diseases.push({
+                                                code: diseaseCode,
+                                                name: `Disease ${diseaseCode}`
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            return drugInfo;
+                        })
+                        .catch(error => {
+                            debug(`Error processing drug ${formattedDrugCode}: ${error.message}`);
+                            return null;
+                        });
+                });
+                
+                // Wait for all drug detail requests to complete
+                const drugInfoResults = await Promise.all(drugDetailsPromises);
+                
+                // Filter out null values (failed requests) and add repurposing scores
+                const validDrugResults = drugInfoResults.filter(info => info !== null);
+                
+                // Calculate repurposing scores for all drugs
+                const resultsWithScores = validDrugResults.map(drug => {
+                    // Base score for all drugs
+                    let repurposingScore = 2;
+                    
+                    // +5 if drug has associated diseases
+                    if (drug.diseases && drug.diseases.length > 0) {
+                        repurposingScore += 5;
+                    }
+                    
+                    // Add the score to the drug object
+                    drug.repurposingScore = repurposingScore;
+                    return drug;
+                });
+                
+                debug(`Added repurposing scores to ${resultsWithScores.length} drugs`);
+                return resultsWithScores;
+            };
+            
+            // Network visualization parameters
+            const radius = 220; // Fixed radius
+            const nodeRadius = 65; // Increased node size
+            
+            // Store node data for reuse
+            let currentNodeData = {};
+            
+            // Add SVG defs for markers (arrows) - optimized
+            function setupSvgMarkers() {
+                if (graph.querySelector('defs')) {
+                    return; // Markers already set up
+                }
+                
+                const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+                
+                // Activation marker (arrow)
+                const activationMarker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+                activationMarker.setAttribute("id", "activation-marker");
+                activationMarker.setAttribute("viewBox", "0 0 10 10");
+                activationMarker.setAttribute("refX", "9");
+                activationMarker.setAttribute("refY", "5");
+                activationMarker.setAttribute("markerWidth", "6");
+                activationMarker.setAttribute("markerHeight", "6");
+                activationMarker.setAttribute("orient", "auto");
+                
+                const activationPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                activationPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+                activationPath.setAttribute("class", "marker-activation");
+                activationMarker.appendChild(activationPath);
+                
+                // Inhibition marker (T shape)
+                const inhibitionMarker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+                inhibitionMarker.setAttribute("id", "inhibition-marker");
+                inhibitionMarker.setAttribute("viewBox", "0 0 10 10");
+                inhibitionMarker.setAttribute("refX", "9");
+                inhibitionMarker.setAttribute("refY", "5");
+                inhibitionMarker.setAttribute("markerWidth", "6");
+                inhibitionMarker.setAttribute("markerHeight", "6");
+                inhibitionMarker.setAttribute("orient", "auto");
+                
+                const inhibitionPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                inhibitionPath.setAttribute("d", "M 0 0 L 0 10 M 0 5 L 10 5");
+                inhibitionPath.setAttribute("class", "marker-inhibition");
+                inhibitionPath.setAttribute("stroke", "#e74c3c");
+                inhibitionPath.setAttribute("stroke-width", "2");
+                inhibitionMarker.appendChild(inhibitionPath);
+                
+                defs.appendChild(activationMarker);
+                defs.appendChild(inhibitionMarker);
+                graph.appendChild(defs);
+            }
+            
+            // Debounce function to limit API calls
+            function debounce(func, wait) {
+                let timeout;
+                return function(...args) {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => func.apply(this, args), wait);
+                };
+            }
+            
+            // Function to show tooltip
+            function showTooltip(content) {
+                newTooltip.innerHTML = content;
+                newTooltip.style.opacity = '1';
+            }
+            
+            // Function to hide tooltip
+            function hideTooltip() {
+                newTooltip.style.opacity = '0';
+            }
+            
+            // Search for a gene with debouncing
+            const debouncedSearch = debounce((geneCode) => {
+                if (geneCode) searchGene(geneCode);
+            }, 300);
+            
+            searchBtn.addEventListener('click', function() {
+                const geneCode = geneInput.value.trim();
+                if (!geneCode) {
+                    alert('Please enter a gene code');
+                    return;
+                }
+                
+                debouncedSearch(geneCode);
+            });
+            
+            // Also allow hitting Enter to search
+            geneInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    const geneCode = geneInput.value.trim();
+                    if (geneCode) {
+                        debouncedSearch(geneCode);
+                    }
+                }
+            });
+            
+            // Function to search for a gene (reusable for click events)
+            async function searchGene(geneCode) {
+                // Reset progress tracking
+                currentProgressPercent = 0;
+                completedWork = 0;
+                
+                // Calculate total work estimate based on a typical search
+                // This creates a baseline for the progress bar to move against
+                totalWorkEstimate = Object.values(WORK_UNITS).reduce((a, b) => a + b, 0);
+                
+                updateProgress("START", "Starting search...");
+                progressBar.style.width = "0%";
+                
+                // Cancel any pending searches
+                if (currentRenderRequest) {
+                    currentRenderRequest.aborted = true;
+                }
+                
+                // Cancel any pending API requests
+                currentApiRequests.forEach(req => {
+                    try {
+                        req.controller.abort();
+                        console.log(`Aborted request: ${req.url}`);
+                    } catch (e) {
+                        console.error(`Error aborting request: ${e.message}`);
+                    }
+                });
+                currentApiRequests = [];
+                
+                // Create a new request identifier
+                currentRenderRequest = { aborted: false };
+                const currentRequest = currentRenderRequest;
+                
+                // Track performance
+                const searchStartTime = performance.now();
+                
+                // Show loading state
+                loading.style.display = 'flex';
+                graph.style.display = 'none';
+                emptyState.style.display = 'none';
+                geneInfo.innerHTML = '<h3 class="gene-title">Loading gene information...</h3>';
+                drugCards.innerHTML = '<h3 class="gene-title">Loading drugs...</h3>';
+                
+                try {
+                    // Fetch gene data
+                    updateProgress("GENE_VERIFICATION", "Verifying gene...");
+                    console.time('API request: ' + geneCode);
+                    const results = await keggApi.getRelatedGenesAndDrugs(geneCode);
+                    console.timeEnd('API request: ' + geneCode);
+                    
+                    // Log overall search time
+                    const totalApiTime = performance.now() - searchStartTime;
+                    console.log(`Total API time: ${totalApiTime.toFixed(2)}ms`);
+                    
+                    // Check if this request was aborted
+                    if (currentRequest.aborted) {
+                        console.log("Search aborted:", geneCode);
+                        return;
+                    }
+                    
+                    if (results.error) {
+                        showError(results.message || results.error);
+                        return;
+                    }
+                    
+                    // Store current gene code
+                    currentNodeData = {
+                        centerGeneCode: geneCode,
+                        results: results
+                    };
+                    
+                    // Update progress for rendering phase
+                    updateProgress("RENDERING", "Rendering network...");
+                    
+                    // Schedule rendering for next animation frame
+                    requestAnimationFrame(() => {
+                        const renderStartTime = performance.now();
+                        console.time('Render network');
+                        
+                        // Render network visualization
+                        renderNetwork(results, geneCode);
+                        
+                        // Show gene information
+                        showGeneInfo(results, geneCode);
+                        
+                        console.timeEnd('Render network');
+                        
+                        // Track total render time
+                        const totalRenderTime = performance.now() - renderStartTime;
+                        console.log(`Total render time: ${totalRenderTime.toFixed(2)}ms`);
+                        
+                        // Update final progress
+                        completeProgress();
+                        
+                        // Hide loading state after a short delay to show 100%
+                        setTimeout(() => {
+                            loading.style.display = 'none';
+                            graph.style.display = 'block';
+                        }, 500);
+                        
+                        // Log total time from search start to render completion
+                        const totalTime = performance.now() - searchStartTime;
+                        console.log(`Total search-to-render time: ${totalTime.toFixed(2)}ms`);
+                    });
+                    
+                } catch (error) {
+                    console.error('Search error:', error);
+                    showError(`Error: ${error.message}`);
+                }
+            }
+            
+            function showError(message) {
+                loading.style.display = 'none';
+                emptyState.style.display = 'flex';
+                emptyState.querySelector('p').textContent = message;
+                geneInfo.innerHTML = '<h3 class="gene-title">Error</h3><p>' + message + '</p>';
+                drugCards.innerHTML = '<h3 class="gene-title">Compatible Drugs</h3><p>No data available</p>';
+                graph.style.display = 'none';
+            }
+            
+            // Object pools for SVG elements to reduce memory churn
+            const nodePool = [];
+            const linkPool = [];
+            const groupPool = [];
+            const textPool = [];
+            
+            function getNodeFromPool() {
+                const node = nodePool.pop() || document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                // Clear any old event listeners or data
+                node.replaceWith(node.cloneNode(false));
+                return node;
+            }
+            
+            function getLinkFromPool() {
+                const link = linkPool.pop() || document.createElementNS("http://www.w3.org/2000/svg", "line");
+                // Clear any old event listeners or data
+                link.replaceWith(link.cloneNode(false));
+                return link;
+            }
+            
+            function getGroupFromPool() {
+                const group = groupPool.pop() || document.createElementNS("http://www.w3.org/2000/svg", "g");
+                // Clear any old event listeners or data by cloning
+                const newGroup = group.cloneNode(false);
+                return newGroup;
+            }
+            
+            function getTextFromPool() {
+                const text = textPool.pop() || document.createElementNS("http://www.w3.org/2000/svg", "text");
+                // Clear any old event listeners or data
+                text.replaceWith(text.cloneNode(false));
+                return text;
+            }
+            
+            function returnNodeToPool(node) {
+                if (nodePool.length < 20) { // Limit pool size
+                    // Clone to remove event listeners before adding to pool
+                    nodePool.push(node.cloneNode(false));
+                }
+            }
+            
+            function returnLinkToPool(link) {
+                if (linkPool.length < 20) {
+                    // Clone to remove event listeners before adding to pool
+                    linkPool.push(link.cloneNode(false));
+                }
+            }
+            
+            function returnGroupToPool(group) {
+                if (groupPool.length < 20) {
+                    // Clone to remove event listeners before adding to pool
+                    groupPool.push(group.cloneNode(false));
+                }
+            }
+            
+            function returnTextToPool(text) {
+                if (textPool.length < 20) {
+                    // Clone to remove event listeners before adding to pool
+                    textPool.push(text.cloneNode(false));
+                }
+            }
+            
+            function renderNetwork(data, baseGeneCode) {
+                // Performance measurement
+                const startTime = performance.now();
+                
+                // Fix: Clear SVG content safely
+                while (graph.firstChild) {
+                    graph.removeChild(graph.firstChild);
+                }
+                
+                // Set SVG dimensions explicitly
+                graph.setAttribute('width', svgWidth);
+                graph.setAttribute('height', svgHeight);
+                graph.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
+                
+                // Add marker definitions for arrows
+                setupSvgMarkers();
+                
+                // Create a document fragment for better performance
+                const fragment = document.createDocumentFragment();
+                
+                // Prepare nodes
+                const nodes = [];
+                const relatedGenes = Object.keys(data.relatedGenes);
+                
+                // Add center node (base gene)
+                const formattedGeneCode = baseGeneCode.includes(':') ? baseGeneCode : `hsa:${baseGeneCode}`;
+                nodes.push({
+                    id: formattedGeneCode,
+                    x: centerX,
+                    y: centerY,
+                    name: data.geneName,
+                    isCenter: true,
+                    ko: data.geneKO || [],
+                    diseases: data.diseases || [],
+                    drugs: data.drugsWithInfo || []
+                });
+                
+                // Add related gene nodes at fixed positions
+                if (relatedGenes.length > 0) {
+                    relatedGenes.forEach((geneCode, index) => {
+                        const geneData = data.relatedGenes[geneCode];
+                        const angle = (2 * Math.PI / relatedGenes.length) * index - Math.PI / 2;
+                        const x = centerX + radius * Math.cos(angle);
+                        const y = centerY + radius * Math.sin(angle);
+                        
+                        // Determine relationship type (placeholder logic)
+                        // In a real implementation, this would come from actual data
+                        // Here we're using a hash of the gene code to get consistent but seemingly random relationship types
+                        const relationshipType = geneCode.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 2 === 0 ? 'activation' : 'inhibition';
+                        
+                        nodes.push({
+                            id: geneCode,
+                            x: x,
+                            y: y,
+                            name: geneData.geneName,
+                            isCenter: false,
+                            ko: geneData.ko || [],
+                            diseases: geneData.diseases || [],
+                            drugs: geneData.drugsWithInfo || [],
+                            pathway: geneData.pathway,
+                            relation: geneData.relation || "Pathway",
+                            relationshipType: relationshipType
+                        });
+                    });
+                }
+                
+                // Draw links from center to related genes
+                for (let i = 1; i < nodes.length; i++) {
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    line.setAttribute("x1", nodes[0].x);
+                    line.setAttribute("y1", nodes[0].y);
+                    
+                    // Calculate position for the arrow to not overlap with the node
+                    const dx = nodes[i].x - nodes[0].x;
+                    const dy = nodes[i].y - nodes[0].y;
+                    const length = Math.sqrt(dx * dx + dy * dy);
+                    const endX = nodes[0].x + dx * (1 - (nodeRadius + 10) / length);
+                    const endY = nodes[0].y + dy * (1 - (nodeRadius + 10) / length);
+                    
+                    line.setAttribute("x2", endX);
+                    line.setAttribute("y2", endY);
+                    line.setAttribute("class", `link ${nodes[i].relationshipType}`);
+                    
+                    // Add appropriate marker based on relationship type
+                    if (nodes[i].relationshipType === 'activation') {
+                        line.setAttribute("marker-end", "url(#activation-marker)");
+                    } else {
+                        line.setAttribute("marker-end", "url(#inhibition-marker)");
+                    }
+                    
+                    // New tooltip handling for links
+                    line.addEventListener("mouseenter", () => {
+                        const content = `
+                            <strong>Relationship:</strong> ${nodes[i].relation} (${nodes[i].relationshipType})<br>
+                            <strong>Pathway:</strong> ${nodes[i].pathway || 'Unknown'}
+                        `;
+                        showTooltip(content);
+                    });
+                    
+                    line.addEventListener("mouseleave", hideTooltip);
+                    
+                    fragment.appendChild(line);
+                }
+                
+                // Draw nodes with labels - batch creation for better performance
+                nodes.forEach(node => {
+                    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                    group.dataset.geneId = node.id;
+                    
+                    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    circle.setAttribute("cx", node.x);
+                    circle.setAttribute("cy", node.y);
+                    circle.setAttribute("r", nodeRadius);
+                    circle.setAttribute("class", node.isCenter ? "node center" : "node");
+                    
+                    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    label.setAttribute("x", node.x);
+                    label.setAttribute("y", node.y);
+                    label.setAttribute("class", "node-label");
+                    // Truncate long gene names
+                    const displayName = node.name.length > 12 ? node.name.substring(0, 10) + "..." : node.name;
+                    label.textContent = displayName;
+                    
+                    // Add interaction events
+                    group.addEventListener("click", () => {
+                        // Make this node the center node by running a new search
+                        if (!node.isCenter) {
+                            geneInput.value = node.id;
+                            searchGene(node.id);
+                        } else {
+                            // Just show gene info if clicking center node
+                            showGeneInfo({
+                                geneName: node.name,
+                                geneKO: node.ko,
+                                diseases: node.diseases,
+                                drugsWithInfo: node.drugs
+                            }, node.id);
+                        }
+                    });
+                    
+                    // Store the original radius to properly restore it
+                    circle.originalRadius = nodeRadius;
+                    
+                    // New tooltip handling for nodes
+                    group.addEventListener("mouseenter", () => {
+                        // Highlight node
+                        circle.setAttribute("r", nodeRadius * 1.1);
+                        
+                        // Show drug cards
+                        showDrugCards(node.drugs, node.name, node.id);
+                        
+                        // Show tooltip
+                        const koCount = node.ko ? node.ko.length : 0;
+                        const diseaseCount = node.diseases ? node.diseases.length : 0;
+                        const drugCount = node.drugs ? node.drugs.length : 0;
+                        
+                        const content = `
+                            <strong>${node.name}</strong> (${node.id})<br>
+                            KO: ${koCount} | Diseases: ${diseaseCount} | Drugs: ${drugCount}
+                        `;
+                        showTooltip(content);
+                    });
+                    
+                    group.addEventListener("mouseleave", () => {
+                        // Restore node size
+                        circle.setAttribute("r", nodeRadius);
+                        hideTooltip();
+                    });
+                    
+                    group.appendChild(circle);
+                    group.appendChild(label);
+                    fragment.appendChild(group);
+                });
+                
+                // Append all elements at once
+                graph.appendChild(fragment);
+                
+                // Performance logging
+                const renderTime = performance.now() - startTime;
+                console.log(`Network rendered in ${renderTime.toFixed(2)}ms with ${nodes.length} nodes`);
+            }
+            
+            // Optimize showGeneInfo with efficient DOM manipulation
+            function showGeneInfo(data, geneCode) {
+                console.time('Show gene info');
+                
+                // Create elements with document fragment
+                const fragment = document.createDocumentFragment();
+                
+                // Create title
+                const title = document.createElement('h3');
+                title.className = 'gene-title';
+                title.textContent = `${data.geneName} (${geneCode})`;
+                fragment.appendChild(title);
+                
+                // Create KO section
+                const koHeader = document.createElement('div');
+                koHeader.className = 'ko-header';
+                koHeader.textContent = 'KEGG Orthology:';
+                fragment.appendChild(koHeader);
+                
+                const koList = document.createElement('ul');
+                koList.className = 'ko-list';
+                
+                if (data.geneKO && data.geneKO.length > 0) {
+                    data.geneKO.forEach(ko => {
+                        const li = document.createElement('li');
+                        li.textContent = `${ko.name} (${ko.id})`;
+                        koList.appendChild(li);
+                    });
+                } else {
+                    const li = document.createElement('li');
+                    li.textContent = 'No KO information available';
+                    koList.appendChild(li);
+                }
+                
+                fragment.appendChild(koList);
+                
+                // Create diseases section
+                const diseasesHeader = document.createElement('div');
+                diseasesHeader.className = 'diseases-header';
+                diseasesHeader.textContent = 'Associated Diseases:';
+                fragment.appendChild(diseasesHeader);
+                
+                const diseasesList = document.createElement('ul');
+                diseasesList.className = 'diseases-list';
+                
+                if (data.diseases && data.diseases.length > 0) {
+                    data.diseases.forEach(disease => {
+                        const li = document.createElement('li');
+                        li.className = 'disease-item';
+                        li.textContent = `${disease.name} (${disease.code})`;
+                        diseasesList.appendChild(li);
+                    });
+                } else {
+                    const li = document.createElement('li');
+                    li.textContent = 'No disease associations found';
+                    diseasesList.appendChild(li);
+                }
+                
+                fragment.appendChild(diseasesList);
+                
+                // Clear and append
+                geneInfo.innerHTML = '';
+                geneInfo.appendChild(fragment);
+                
+                console.timeEnd('Show gene info');
+            }
+            
+            // Optimize showDrugCards with efficient DOM manipulation
+            function showDrugCards(drugs, geneName, geneCode) {
+                console.time('Show drug cards');
+                
+                // Debug logs for repurposing scores
+                console.log(`Showing drug cards for ${geneName} (${geneCode})`);
+                console.log(`Received ${drugs ? drugs.length : 0} drugs`);
+                if (drugs && drugs.length > 0) {
+                    const drugsWithScores = drugs.filter(d => d.repurposingScore !== undefined);
+                    console.log(`Drugs with repurposing scores: ${drugsWithScores.length}/${drugs.length}`);
+                    
+                    if (drugsWithScores.length > 0) {
+                        console.log(`Sample repurposing score: ${drugsWithScores[0].repurposingScore}`);
+                    } else {
+                        console.log(`First drug:`, drugs[0]);
+                    }
+                }
+                
+                // Create a document fragment
+                const fragment = document.createDocumentFragment();
+                
+                // Create title
+                const title = document.createElement('h3');
+                title.className = 'gene-title';
+                
+                if (!drugs || drugs.length === 0) {
+                    title.textContent = 'Compatible Drugs';
+                    fragment.appendChild(title);
+                    
+                    const noData = document.createElement('p');
+                    noData.textContent = `No compatible drugs found for ${geneName} (${geneCode})`;
+                    fragment.appendChild(noData);
+                    
+                    drugCards.innerHTML = '';
+                    drugCards.appendChild(fragment);
+                    console.timeEnd('Show drug cards');
+                    return;
+                }
+                
+                title.textContent = `Compatible Drugs for ${geneName}`;
+                fragment.appendChild(title);
+                
+                // Sort drugs by repurposing score if available
+                const sortedDrugs = [...drugs].sort((a, b) => {
+                    const scoreA = a.repurposingScore || 0;
+                    const scoreB = b.repurposingScore || 0;
+                    return scoreB - scoreA; // descending order
+                });
+                
+                // Create drug cards
+                sortedDrugs.forEach(drug => {
+                    const card = document.createElement('div');
+                    card.className = 'drug-card';
+                    
+                    const drugNameContainer = document.createElement('div');
+                    drugNameContainer.className = 'drug-name-container';
+                    
+                    const drugName = document.createElement('div');
+                    drugName.className = 'drug-name';
+                    drugName.textContent = `${drug.name} (${drug.code})`;
+                    drugNameContainer.appendChild(drugName);
+                    
+                    // Add repurposing score if available
+                    if (drug.repurposingScore !== undefined) {
+                        const scoreSpan = document.createElement('span');
+                        scoreSpan.className = 'repurposing-score';
+                        scoreSpan.textContent = `Score: ${drug.repurposingScore}`;
+                        
+                        // Color coding based on score value
+                        if (drug.repurposingScore >= 10) {
+                            scoreSpan.classList.add('high-score');
+                        } else if (drug.repurposingScore >= 5) {
+                            scoreSpan.classList.add('medium-score');
+                        }
+                        
+                        drugNameContainer.appendChild(scoreSpan);
+                    }
+                    
+                    card.appendChild(drugNameContainer);
+                    
+                    if (drug.diseases && drug.diseases.length > 0) {
+                        const diseaseContainer = document.createElement('div');
+                        diseaseContainer.className = 'drug-diseases';
+                        
+                        const diseasesLabel = document.createElement('strong');
+                        diseasesLabel.textContent = 'Associated Diseases:';
+                        diseaseContainer.appendChild(diseasesLabel);
+                        
+                        const diseasesList = document.createElement('ul');
+                        diseasesList.className = 'diseases-list';
+                        
+                        drug.diseases.forEach(disease => {
+                            const li = document.createElement('li');
+                            li.className = 'disease-item';
+                            li.textContent = `${disease.name} (${disease.code})`;
+                            diseasesList.appendChild(li);
+                        });
+                        
+                        diseaseContainer.appendChild(diseasesList);
+                        card.appendChild(diseaseContainer);
+                    } else {
+                        const noDiseases = document.createElement('div');
+                        noDiseases.className = 'drug-diseases';
+                        noDiseases.textContent = 'No associated diseases found';
+                        card.appendChild(noDiseases);
+                    }
+                    
+                    fragment.appendChild(card);
+                });
+                
+                // Add CSS styles for repurposing score
+                if (!document.getElementById('drug-cards-style')) {
+                    const style = document.createElement('style');
+                    style.id = 'drug-cards-style';
+                    style.textContent = `
+                        .drug-name-container {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            margin-bottom: 8px;
+                        }
+                        .repurposing-score {
+                            padding: 2px 8px;
+                            border-radius: 4px;
+                            font-size: 0.85em;
+                            font-weight: bold;
+                            background-color: #3498db;
+                            color: white;
+                        }
+                        .high-score {
+                            background-color: #27ae60;
+                        }
+                        .medium-score {
+                            background-color: #f39c12;
+                        }
+                        .drug-card {
+                            transition: all 0.2s ease;
+                        }
+                        .drug-card:hover {
+                            transform: translateY(-5px);
+                            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+                
+                // Clear and append
+                drugCards.innerHTML = '';
+                drugCards.appendChild(fragment);
+                
+                console.timeEnd('Show drug cards');
+            }
+            
+            // Add example values for demo
+            const exampleGenes = [
+                'hsa:5747', // PTK2
+                'hsa:673',  // BRAF
+                'hsa:5594', // MAPK1
+                'hsa:3845', // KRAS
+                'hsa:10499' // NCOA2
+            ];
+            
+            const randomExample = exampleGenes[Math.floor(Math.random() * exampleGenes.length)];
+            geneInput.setAttribute('placeholder', `Enter gene code (e.g., ${randomExample})`);
+            
+            // Log performance metrics
+            window.addEventListener('load', function() {
+                setTimeout(() => {
+                    if (window.performance && window.performance.getEntriesByType) {
+                        const perfEntries = window.performance.getEntriesByType("navigation");
+                        if (perfEntries.length > 0) {
+                            const timing = perfEntries[0];
+                            console.log(`Page loaded in ${timing.duration.toFixed(2)}ms`);
+                        }
+                    }
+                }, 0);
+            });
+        });
+    </script>
+</body>
+</html> 

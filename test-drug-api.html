@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KEGG API Drug Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f7f9fc;
+            color: #333;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+        }
+        
+        #output {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            font-family: 'Courier New', monospace;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 600px;
+            overflow-y: auto;
+            line-height: 1.4;
+        }
+        
+        .info {
+            color: #75bfff;
+        }
+        
+        .error {
+            color: #f48771;
+        }
+        
+        .success {
+            color: #89d185;
+        }
+        
+        .important {
+            color: #ce9178;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>KEGG API Drug Test</h1>
+    <p>This page tests the KEGG API drug entries to examine the DISEASE section format.</p>
+    
+    <button id="run-test">Run Test</button>
+    <div id="output">Click "Run Test" to start...</div>
+    
+    <script>
+        // Override console methods to display in our output div
+        (function() {
+            const output = document.getElementById('output');
+            const originalLog = console.log;
+            const originalError = console.error;
+            
+            console.log = function(...args) {
+                const message = args.map(arg => 
+                    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+                ).join(' ');
+                
+                const line = document.createElement('div');
+                line.className = 'info';
+                line.textContent = message;
+                output.appendChild(line);
+                output.scrollTop = output.scrollHeight;
+                
+                originalLog.apply(console, args);
+            };
+            
+            console.error = function(...args) {
+                const message = args.map(arg => 
+                    typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+                ).join(' ');
+                
+                const line = document.createElement('div');
+                line.className = 'error';
+                line.textContent = message;
+                output.appendChild(line);
+                output.scrollTop = output.scrollHeight;
+                
+                originalError.apply(console, args);
+            };
+            
+            // Add special styling for output
+            window.highlight = function(text, className = 'important') {
+                const line = document.createElement('div');
+                line.className = className;
+                line.textContent = text;
+                output.appendChild(line);
+                output.scrollTop = output.scrollHeight;
+            };
+        })();
+        
+        // Test button handler
+        document.getElementById('run-test').addEventListener('click', function() {
+            const output = document.getElementById('output');
+            output.innerHTML = '<div class="success">Starting test...</div>';
+            
+            // Test drug API
+            testDrugApi();
+        });
+        
+        // Test script to fetch drug information from KEGG API
+        async function testDrugApi() {
+            const drugCodes = ['D00036', 'D00049', 'D00097', 'D01441', 'D08517']; // Some sample drug codes
+            
+            console.log('Testing KEGG Drug API...');
+            
+            for (const code of drugCodes) {
+                const formattedCode = `dr:${code}`;
+                const url = `https://rest.kegg.jp/get/${formattedCode}`;
+                console.log(`Fetching ${url}...`);
+                
+                try {
+                    const response = await fetch(url, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'text/plain'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        console.error(`Error: ${response.status} ${response.statusText}`);
+                        continue;
+                    }
+                    
+                    const data = await response.text();
+                    console.log(`Response length: ${data.length} characters`);
+                    
+                    // Check for DISEASE section
+                    const diseaseIndex = data.indexOf('DISEASE');
+                    if (diseaseIndex >= 0) {
+                        window.highlight(`DISEASE section found for ${code} at position ${diseaseIndex}`);
+                        
+                        // Display a snippet of the DISEASE section
+                        const diseaseSection = data.substring(diseaseIndex, diseaseIndex + 400);
+                        console.log('DISEASE section snippet:');
+                        window.highlight(diseaseSection, 'success');
+                        
+                        // Try different regex patterns
+                        const patterns = [
+                            /DISEASE\s+(.*?)(?=\n[A-Z]|\n\n|$)/gs, // Original pattern
+                            /DISEASE\s+([\s\S]*?)(?=\n\S+:|$)/, // New pattern from our last fix
+                            /\[DS:(.*?)\]\s+(.*?)(?:\s+\(.*\))?$/gm, // Disease code pattern
+                        ];
+                        
+                        for (let i = 0; i < patterns.length; i++) {
+                            const matches = data.match(patterns[i]);
+                            console.log(`Pattern ${i+1} matches: ${matches ? matches.length : 0}`);
+                            if (matches && matches.length > 0) {
+                                console.log(`First match: ${matches[0].substring(0, 100)}...`);
+                            }
+                        }
+                        
+                        // Try another approach - line by line parsing
+                        console.log("Line by line parsing:");
+                        const lines = data.split('\n');
+                        let inDiseaseSection = false;
+                        const diseaseLines = [];
+                        
+                        for (const line of lines) {
+                            if (line.startsWith('DISEASE')) {
+                                inDiseaseSection = true;
+                                diseaseLines.push(line);
+                            } else if (inDiseaseSection) {
+                                if (line.match(/^[A-Z]+/) && !line.trim().startsWith('[')) {
+                                    // New section started
+                                    inDiseaseSection = false;
+                                } else if (line.trim()) {
+                                    diseaseLines.push(line);
+                                }
+                            }
+                        }
+                        
+                        console.log(`Found ${diseaseLines.length} lines in DISEASE section`);
+                        if (diseaseLines.length > 0) {
+                            console.log("Disease lines:");
+                            for (const line of diseaseLines.slice(0, 5)) {
+                                console.log(`  ${line}`);
+                            }
+                            if (diseaseLines.length > 5) {
+                                console.log(`  ... and ${diseaseLines.length - 5} more lines`);
+                            }
+                        }
+                    } else {
+                        console.log('No DISEASE section found in the response');
+                    }
+                    
+                    console.log('---------------------------');
+                } catch (error) {
+                    console.error(`Error fetching drug ${code}: ${error.message}`);
+                }
+            }
+            
+            console.log('Test completed');
+        }
+    </script>
+</body>
+</html> 
