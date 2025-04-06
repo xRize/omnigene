@@ -745,6 +745,32 @@
         .explore-gene-link:active {
             transform: translateY(1px);
         }
+        
+        .loading-indicator {
+            padding: 15px;
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+            margin: 10px 0;
+            position: relative;
+            padding-left: 30px;
+        }
+        
+        .loading-indicator:before {
+            content: "";
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            margin-top: -8px;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(95, 108, 255, 0.3);
+            border-top: 3px solid #5f6cff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
     </style>
 </head>
 <body>
@@ -814,6 +840,79 @@
     <script src="kegg-gene-drug-finder.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // API response cache implementation
+            const API_CACHE_KEY = 'omnigene_api_cache';
+            const API_CACHE_VERSION = '1.0';
+            const API_CACHE_EXPIRATION = 24 * 60 * 60 * 1000; // 24 hours
+            
+            // Initialize cache
+            let apiCache = new Map();
+            
+            // Load cache from localStorage
+            function loadCacheFromStorage() {
+                try {
+                    const cachedData = localStorage.getItem(API_CACHE_KEY);
+                    if (cachedData) {
+                        const parsedData = JSON.parse(cachedData);
+                        
+                        // Check cache version
+                        if (parsedData.version !== API_CACHE_VERSION) {
+                            console.log('Cache version mismatch, clearing cache');
+                            clearCache();
+                            return;
+                        }
+                        
+                        // Check cache expiration and add valid entries to memory cache
+                        const now = Date.now();
+                        let validEntries = 0;
+                        
+                        parsedData.entries.forEach(([key, entry]) => {
+                            if (now - entry.timestamp < API_CACHE_EXPIRATION) {
+                                apiCache.set(key, entry.data);
+                                validEntries++;
+                            }
+                        });
+                        
+                        console.log(`Loaded ${validEntries} cache entries`);
+                    }
+                } catch (err) {
+                    console.error('Error loading cache:', err);
+                    clearCache();
+                }
+            }
+            
+            // Save cache to localStorage
+            function saveCacheToStorage() {
+                try {
+                    const entries = Array.from(apiCache.entries()).map(([key, data]) => {
+                        return [key, { data, timestamp: Date.now() }];
+                    });
+                    
+                    const cacheData = {
+                        version: API_CACHE_VERSION,
+                        entries: entries
+                    };
+                    
+                    localStorage.setItem(API_CACHE_KEY, JSON.stringify(cacheData));
+                    console.log(`Saved ${entries.length} cache entries`);
+                } catch (err) {
+                    console.error('Error saving cache:', err);
+                }
+            }
+            
+            // Clear cache
+            function clearCache() {
+                apiCache.clear();
+                localStorage.removeItem(API_CACHE_KEY);
+                console.log('Cache cleared');
+            }
+            
+            // Auto-save cache every 5 minutes
+            setInterval(saveCacheToStorage, 5 * 60 * 1000);
+            
+            // Load cache on startup
+            loadCacheFromStorage();
+            
             // DOM elements - landing page
             const tryMeBtn = document.getElementById('try-me-btn');
             const landingContainer = document.getElementById('landing-container');
@@ -951,9 +1050,20 @@
             
             // Override the fetchData method with our rate-limited version (no caching)
             const originalFetchData = keggApi.fetchData;
+            
+            // Memoization cache for repurposing score calculations - defined before any function that uses it
+            const repurposingScoreCache = new Map();
+            
             keggApi.fetchData = function(url) {
                 // Increment progress for each API request
                 updateProgress(null, null, 1); // Add 1 work unit per request
+                
+                // Check cache first
+                const cacheKey = url;
+                if (apiCache.has(cacheKey)) {
+                    console.log(`Cache hit for: ${url}`);
+                    return Promise.resolve(apiCache.get(cacheKey));
+                }
                 
                 // Return a new promise for this request
                 return new Promise((resolve, reject) => {
@@ -971,6 +1081,11 @@
                             
                             // Remove from current requests
                             currentApiRequests = currentApiRequests.filter(req => req.url !== url);
+                            
+                            // Add to cache
+                            if (response) {
+                                apiCache.set(cacheKey, response);
+                            }
                             
                             // Log performance metrics
                             console.log(`API fetch: ${url} - ${fetchTime.toFixed(2)}ms`);
@@ -1004,6 +1119,9 @@
             keggApi.getRelatedGenesAndDrugs = async function(geneCode) {
                 try {
                     const formattedGeneCode = geneCode.includes(':') ? geneCode : `hsa:${geneCode}`;
+                    
+                    // Initialize array to collect gene detail promises
+                    const geneDetailsPromises = [];
                     
                     // Get gene name to verify it exists - must be sequential
                     updateProgress("GENE_VERIFICATION", "Verifying gene...");
@@ -1151,14 +1269,15 @@
                     
                     const pathwayGenesResults = await Promise.all(pathwayGenesPromises);
                     updateProgress(null, null, WORK_UNITS.RELATED_GENES);
-                    updateProgress("GENE_DETAILS", "Analyzing related genes...");
                     
-                    // Now process up to 3 genes per pathway in parallel
+                    // Initialize array to collect gene detail promises
                     const geneDetailsPromises = [];
                     
+                    // Implementation of lazy loading for related genes
+                    // Just get basic info first, then load details on demand
                     for (const pathwayResult of pathwayGenesResults) {
                         const genesToProcess = pathwayResult.genesInPathway.slice(0, 3);
-                        debug(`Processing genes from pathway ${pathwayResult.pathwayName}: ${genesToProcess.join(', ')}`);
+                        debug(`Setting up lazy loading for genes from pathway ${pathwayResult.pathwayName}: ${genesToProcess.join(', ')}`);
                         
                         for (const relatedGene of genesToProcess) {
                             // Skip if already processed
@@ -1167,51 +1286,59 @@
                                 continue;
                             }
                             
-                            // Pre-initialize gene entry
+                            // Get just the gene name for display purposes
+                            const relatedGeneName = await this.getGeneName(relatedGene);
+                            if (relatedGeneName === "Unknown") {
+                                debug(`Unable to get name for gene ${relatedGene}, skipping`);
+                                continue;
+                            }
+                            
+                            // Create a lightweight initial entry with lazy loading function
                             relatedGenes[relatedGene] = {
-                                geneName: "Loading...",
+                                geneName: relatedGeneName,
                                 relation: "Pathway",
                                 pathway: pathwayResult.pathwayName,
                                 ko: [],
                                 diseases: [],
                                 drugs: [],
-                                drugsWithInfo: []
-                            };
-                            
-                            // Gather gene details in parallel
-                            const geneDetailsPromise = Promise.all([
-                                this.getGeneName(relatedGene),
-                                this.getGeneKO(relatedGene),
-                                this.getGeneDiseases(relatedGene),
-                                this.fetchData(`https://rest.kegg.jp/link/drug/${relatedGene}`)
-                            ]).then(async ([relatedGeneName, relatedGeneKO, relatedGeneDiseases, relatedDrugsResponse]) => {
-                                if (relatedGeneName === "Unknown") {
-                                    debug(`Unable to get name for gene ${relatedGene}, skipping`);
-                                    delete relatedGenes[relatedGene];
-                                    return;
-                                }
+                                drugsWithInfo: [],
+                                isFullyLoaded: false,
                                 
-                                // Parse drug codes
-                                let drugCodes = [];
-                                if (relatedDrugsResponse && relatedDrugsResponse.trim()) {
-                                    drugCodes = relatedDrugsResponse.trim().split('\n')
-                                        .map(line => {
-                                            const parts = line.split('\t');
-                                            if (parts.length >= 2 && (parts[1].startsWith('dr:') || parts[1].match(/^D\d+$/))) {
-                                                return parts[1];
-                                            }
-                                            return null;
-                                        })
-                                        .filter(Boolean);
-                                }
-                                
-                                // Get drug details if we have any
-                                let geneRelatedDrugsWithInfo = [];
-                                if (drugCodes.length > 0) {
-                                    geneRelatedDrugsWithInfo = await this._fetchDrugDetails(drugCodes, relatedGeneDiseases);
+                                // Function to load full details on demand
+                                loadFullDetails: async () => {
+                                    if (relatedGenes[relatedGene].isFullyLoaded) {
+                                        return relatedGenes[relatedGene];
+                                    }
                                     
-                                    // Calculate repurposing score for each drug
-                                    for (const drug of geneRelatedDrugsWithInfo) {
+                                    debug(`Lazy loading details for ${relatedGene}`);
+                                    
+                                    // Load detailed data
+                                    const [relatedGeneKO, relatedGeneDiseases, relatedDrugsResponse] = 
+                                        await Promise.all([
+                                            this.getGeneKO(relatedGene),
+                                            this.getGeneDiseases(relatedGene),
+                                            this.fetchData(`https://rest.kegg.jp/link/drug/${relatedGene}`)
+                                        ]);
+                                    
+                                    // Parse drug codes
+                                    let drugCodes = [];
+                                    if (relatedDrugsResponse && relatedDrugsResponse.trim()) {
+                                        drugCodes = relatedDrugsResponse.trim().split('\n')
+                                            .map(line => {
+                                                const parts = line.split('\t');
+                                                if (parts.length >= 2 && (parts[1].startsWith('dr:') || parts[1].match(/^D\d+$/))) {
+                                                    return parts[1];
+                                                }
+                                                return null;
+                                            })
+                                            .filter(Boolean);
+                                    }
+                                    
+                                    // Get drug details if we have any
+                                    let geneRelatedDrugsWithInfo = [];
+                                    if (drugCodes.length > 0) {
+                                        geneRelatedDrugsWithInfo = await this._fetchDrugDetails(drugCodes, relatedGeneDiseases);
+                                        
                                         // Determine relationship type based on pathway name
                                         let relation = "Pathway";
                                         if (pathwayResult.pathwayName.toLowerCase().includes("activ")) {
@@ -1220,6 +1347,21 @@
                                             relation = "Inhibition";
                                         }
                                         
+                                        // Calculate repurposing score for each drug
+                                        for (const drug of geneRelatedDrugsWithInfo) {
+                                            drug.repurposingScore = calculateRepurposingScore(
+                                                drug,
+                                                geneDiseases, // Base gene diseases
+                                                relatedGeneDiseases, // Related gene diseases
+                                                relation
+                                            );
+                                        }
+                                        
+                                        // Sort drugs by repurposing score (highest first)
+                                        geneRelatedDrugsWithInfo.sort((a, b) => b.repurposingScore - a.repurposingScore);
+                                    }
+                                    
+                                    // Update gene entry with complete information
                                         // Calculate repurposing score
                                         drug.repurposingScore = calculateRepurposingScore(
                                             drug,
@@ -1279,11 +1421,11 @@
                             debug(`Fetched description for main gene ${formattedGeneCode}`);
                         }
                         
-                    updateProgress(null, null, WORK_UNITS.FINALIZATION);
-                    
-                    debug(`Completed processing with ${Object.keys(relatedGenes).length} related genes`);
-                    
-                    // Create final result
+                        updateProgress(null, null, WORK_UNITS.FINALIZATION);
+                        
+                        debug(`Completed processing with ${Object.keys(relatedGenes).length} related genes`);
+                        
+                        // Create final result
                         return {
                             geneName,
                             geneKO,
@@ -1298,14 +1440,14 @@
                         // Continue without descriptions if there's an error
                         updateProgress(null, null, WORK_UNITS.FINALIZATION);
                         
-                    return {
-                        geneName,
-                        geneKO,
-                        diseases: geneDiseases,
-                        drugs: baseDrugs,
-                        drugsWithInfo,
-                        relatedGenes
-                    };
+                        return {
+                            geneName,
+                            geneKO,
+                            diseases: geneDiseases,
+                            drugs: baseDrugs,
+                            drugsWithInfo,
+                            relatedGenes
+                        };
                     }
                 } catch (error) {
                     debug(`Error getting related genes and drugs: ${error.message}`);
@@ -1791,6 +1933,9 @@
                 graph.innerHTML = '';
                 setupSvgMarkers();
                 
+                // Create a document fragment for batched DOM operations
+                const fragment = document.createDocumentFragment();
+                
                 // Get the SVG dimensions
                 const svgRect = graph.getBoundingClientRect();
                 const width = svgRect.width || 600;
@@ -1807,7 +1952,7 @@
                 ];
                 
                 for (const [relatedGeneCode, geneData] of Object.entries(results.relatedGenes)) {
-                nodes.push({
+                    nodes.push({
                         id: relatedGeneCode,
                         name: geneData.geneName,
                         type: 'related',
@@ -1858,7 +2003,8 @@
                     const endX = targetX - normX * targetRadius;
                     const endY = targetY - normY * targetRadius;
                     
-                    const edge = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    // Get an edge from the pool
+                    const edge = getLinkFromPool();
                     edge.setAttribute("x1", startX);
                     edge.setAttribute("y1", startY);
                     edge.setAttribute("x2", endX);
@@ -1878,18 +2024,97 @@
                         edge.setAttribute("class", "edge");
                     }
                     
-                    graph.appendChild(edge);
+                    fragment.appendChild(edge);
+                }
+                
+                // Node event handler creator - using a factory function to avoid closures in loops
+                function createNodeEventHandlers(node, nodeGroup) {
+                    return {
+                        mouseenter: function() {
+                            // Show tooltip with description if available
+                            let tooltipContent = `<strong>${node.name}</strong> (${node.id})`;
+                            
+                            if (node.description) {
+                                tooltipContent += `<div class="gene-description">${node.description}</div>`;
+                            }
+                            
+                            if (node.type === 'related') {
+                                tooltipContent += `<div>Relation: ${node.relation || 'Pathway'}</div>`;
+                                tooltipContent += `<div>Pathway: ${node.pathway || 'Unknown'}</div>`;
+                                tooltipContent += `<div class="node-action-hint">Double-click to explore this gene</div>`;
+                            }
+                            
+                            showTooltip(tooltipContent);
+                            
+                            // Highlight edges connected to this node
+                            highlightNode(node.id);
+                            
+                            // Load drugs for this node
+                            if (node.type === 'center') {
+                                showDrugCards(node.id, node.name, results.drugsWithInfo)
+                                    .catch(err => console.error('Error showing drug cards:', err));
+                            } else {
+                                const nodeData = results.relatedGenes[node.id];
+                                if (nodeData && (nodeData.drugsWithInfo || !nodeData.isFullyLoaded)) {
+                                    showDrugCards(node.id, node.name, nodeData.drugsWithInfo || [])
+                                        .catch(err => console.error('Error showing drug cards:', err));
+                                }
+                            }
+                        },
+                        mouseleave: function() {
+                            hideTooltip();
+                            clearHighlights();
+                        },
+                        click: function() {
+                            // Select node (for mobile where hover is not available)
+                            const wasActive = nodeGroup.classList.contains('active');
+                            
+                            // Clear all active states
+                            const activeNodes = graph.querySelectorAll('.node.active');
+                            activeNodes.forEach(node => node.classList.remove('active'));
+                            
+                            if (!wasActive) {
+                                // Set active and trigger events
+                                nodeGroup.classList.add('active');
+                                highlightNode(node.id);
+                                
+                                // Load drugs for this node
+                                if (node.type === 'center') {
+                                    showDrugCards(node.id, node.name, results.drugsWithInfo)
+                                        .catch(err => console.error('Error showing drug cards on click:', err));
+                                } else {
+                                    const nodeData = results.relatedGenes[node.id];
+                                    if (nodeData && (nodeData.drugsWithInfo || !nodeData.isFullyLoaded)) {
+                                        showDrugCards(node.id, node.name, nodeData.drugsWithInfo || [])
+                                            .catch(err => console.error('Error showing drug cards on click:', err));
+                                    }
+                                    
+                                    // If it's a related gene node, allow clicking to make it the new center
+                                    // Use double-click to avoid conflict with single click selection
+                                    const now = new Date().getTime();
+                                    if (!nodeGroup.lastClickTime || (now - nodeGroup.lastClickTime < 300)) {
+                                        // This is a double-click - search for this gene
+                                        debug(`Double-click detected on ${node.id}, initiating search`);
+                                        geneInput.value = node.id;
+                                        searchGene(node.id);
+                                    }
+                                    nodeGroup.lastClickTime = now;
+                                }
+                            }
+                        }
+                    };
                 }
                 
                 // Draw nodes
                 for (const node of nodes) {
-                    const nodeGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                    // Get a group from the pool
+                    const nodeGroup = getGroupFromPool();
                     nodeGroup.setAttribute("class", `node ${node.type}`);
                     nodeGroup.setAttribute("transform", `translate(${node.x},${node.y})`);
                     nodeGroup.setAttribute("data-id", node.id);
                     
                     // Node circle
-                    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    const circle = getNodeFromPool();
                     circle.setAttribute("r", nodeRadius);
                     nodeGroup.appendChild(circle);
                     
@@ -1920,124 +2145,66 @@
                     foreignObject.appendChild(textDiv);
                     nodeGroup.appendChild(foreignObject);
                     
-                    // Event listeners
-                    nodeGroup.addEventListener('mouseenter', function() {
-                        // Show tooltip with description if available
-                        let tooltipContent = `<strong>${node.name}</strong> (${node.id})`;
-                        
-                        if (node.description) {
-                            tooltipContent += `<div class="gene-description">${node.description}</div>`;
-                        }
-                        
-                        if (node.type === 'related') {
-                            tooltipContent += `<div>Relation: ${node.relation || 'Pathway'}</div>`;
-                            tooltipContent += `<div>Pathway: ${node.pathway || 'Unknown'}</div>`;
-                            tooltipContent += `<div class="node-action-hint">Double-click to explore this gene</div>`;
-                        }
-                        
-                        showTooltip(tooltipContent);
-                        
-                        // Highlight edges connected to this node
-                        highlightNode(node.id);
-                        
-                        // Load drugs for this node
-                        if (node.type === 'center') {
-                            showDrugCards(node.id, node.name, results.drugsWithInfo);
-                        } else {
-                            const nodeData = results.relatedGenes[node.id];
-                            if (nodeData && nodeData.drugsWithInfo) {
-                                showDrugCards(node.id, node.name, nodeData.drugsWithInfo);
-                            }
-                        }
-                    });
+                    // Attach event handlers
+                    const handlers = createNodeEventHandlers(node, nodeGroup);
+                    nodeGroup.addEventListener('mouseenter', handlers.mouseenter);
+                    nodeGroup.addEventListener('mouseleave', handlers.mouseleave);
+                    nodeGroup.addEventListener('click', handlers.click);
                     
-                    nodeGroup.addEventListener('mouseleave', function() {
-                        hideTooltip();
-                        clearHighlights();
-                    });
-                    
-                    nodeGroup.addEventListener('click', function() {
-                        // Select node (for mobile where hover is not available)
-                        const wasActive = nodeGroup.classList.contains('active');
-                        
-                        // Clear all active states
-                        const activeNodes = graph.querySelectorAll('.node.active');
-                        activeNodes.forEach(node => node.classList.remove('active'));
-                        
-                        if (!wasActive) {
-                            // Set active and trigger events
-                            nodeGroup.classList.add('active');
-                            highlightNode(node.id);
-                            
-                            // Load drugs for this node
-                            if (node.type === 'center') {
-                                showDrugCards(node.id, node.name, results.drugsWithInfo);
-                            } else {
-                                const nodeData = results.relatedGenes[node.id];
-                                if (nodeData && nodeData.drugsWithInfo) {
-                                    showDrugCards(node.id, node.name, nodeData.drugsWithInfo);
-                                }
-                                
-                                // If it's a related gene node, allow clicking to make it the new center
-                                // Use double-click to avoid conflict with single click selection
-                                const now = new Date().getTime();
-                                if (!nodeGroup.lastClickTime || (now - nodeGroup.lastClickTime < 300)) {
-                                    // This is a double-click - search for this gene
-                                    debug(`Double-click detected on ${node.id}, initiating search`);
-                                    geneInput.value = node.id;
-                                    searchGene(node.id);
-                                }
-                                nodeGroup.lastClickTime = now;
-                            }
-                        }
-                    });
-                    
-                    graph.appendChild(nodeGroup);
+                    fragment.appendChild(nodeGroup);
                 }
+                
+                // Add all elements at once
+                graph.appendChild(fragment);
                 
                 // Function to highlight a node and its edges
                 function highlightNode(nodeId) {
-                    // Dim all nodes and edges
-                    const allNodes = graph.querySelectorAll('.node');
-                    const allEdges = graph.querySelectorAll('.edge');
-                    
-                    allNodes.forEach(node => node.classList.add('dimmed'));
-                    allEdges.forEach(edge => edge.classList.add('dimmed'));
-                    
-                    // Highlight the center node and the selected node and edge between them
-                    const selectedNode = graph.querySelector(`.node[data-id="${nodeId}"]`);
-                    const centerNode = graph.querySelector('.node.center');
-                    
-                    if (selectedNode) {
-                        selectedNode.classList.remove('dimmed');
-                        selectedNode.classList.add('highlighted');
-                    }
-                    
-                    if (centerNode) {
-                        centerNode.classList.remove('dimmed');
-                    }
-                    
-                    // If the selected node is not the center, highlight the edge between them
-                    if (nodeId !== nodes[0].id) {
-                        const edge = graph.querySelector(`.edge[data-source="${nodes[0].id}"][data-target="${nodeId}"]`);
-                        if (edge) {
-                            edge.classList.remove('dimmed');
-                            edge.classList.add('highlighted');
+                    // Use requestAnimationFrame for better performance
+                    requestAnimationFrame(() => {
+                        // Dim all nodes and edges
+                        const allNodes = graph.querySelectorAll('.node');
+                        const allEdges = graph.querySelectorAll('.edge');
+                        
+                        allNodes.forEach(node => node.classList.add('dimmed'));
+                        allEdges.forEach(edge => edge.classList.add('dimmed'));
+                        
+                        // Highlight the center node and the selected node and edge between them
+                        const selectedNode = graph.querySelector(`.node[data-id="${nodeId}"]`);
+                        const centerNode = graph.querySelector('.node.center');
+                        
+                        if (selectedNode) {
+                            selectedNode.classList.remove('dimmed');
+                            selectedNode.classList.add('highlighted');
                         }
-                    }
+                        
+                        if (centerNode) {
+                            centerNode.classList.remove('dimmed');
+                        }
+                        
+                        // If the selected node is not the center, highlight the edge between them
+                        if (nodeId !== nodes[0].id) {
+                            const edge = graph.querySelector(`.edge[data-source="${nodes[0].id}"][data-target="${nodeId}"]`);
+                            if (edge) {
+                                edge.classList.remove('dimmed');
+                                edge.classList.add('highlighted');
+                            }
+                        }
+                    });
                 }
                 
                 // Function to clear highlights
                 function clearHighlights() {
-                    const allNodes = graph.querySelectorAll('.node');
-                    const allEdges = graph.querySelectorAll('.edge');
-                    
-                    allNodes.forEach(node => {
-                        node.classList.remove('dimmed', 'highlighted');
-                    });
-                    
-                    allEdges.forEach(edge => {
-                        edge.classList.remove('dimmed', 'highlighted');
+                    requestAnimationFrame(() => {
+                        const allNodes = graph.querySelectorAll('.node');
+                        const allEdges = graph.querySelectorAll('.edge');
+                        
+                        allNodes.forEach(node => {
+                            node.classList.remove('dimmed', 'highlighted');
+                        });
+                        
+                        allEdges.forEach(edge => {
+                            edge.classList.remove('dimmed', 'highlighted');
+                        });
                     });
                 }
                 
@@ -2047,7 +2214,8 @@
                 emptyState.style.display = 'none';
                 
                 // Show drug cards for the center gene by default
-                showDrugCards(geneCode, results.geneName, results.drugsWithInfo);
+                showDrugCards(geneCode, results.geneName, results.drugsWithInfo)
+                    .catch(err => console.error('Error showing initial drug cards:', err));
                 
                 console.timeEnd('Render network');
             }
@@ -2120,51 +2288,54 @@
             }
             
             // Function to display drug cards for a gene
-            function showDrugCards(geneCode, geneName, drugs) {
+            async function showDrugCards(geneCode, geneName, drugs) {
                 console.time('Show drug cards');
                 
-                // Create a document fragment for faster DOM operations
-                const fragment = document.createDocumentFragment();
+                // Show loading indicator
+                drugCards.innerHTML = '<div class="loading-indicator">Loading drug information...</div>';
                 
-                // Create title
-                const title = document.createElement('h3');
-                title.className = 'gene-title';
-                
-                // Add an "Explore this gene" link for related genes (not center gene)
-                const isRelatedGene = geneCode !== currentNodeData.centerGeneCode;
-                if (isRelatedGene) {
-                    const exploreContainer = document.createElement('div');
-                    exploreContainer.className = 'explore-gene-container';
+                // For related genes, check if we need to load full details
+                if (geneCode !== currentNodeData.centerGeneCode && 
+                    currentNodeData.results && 
+                    currentNodeData.results.relatedGenes[geneCode] && 
+                    !currentNodeData.results.relatedGenes[geneCode].isFullyLoaded) {
                     
-                    const exploreLink = document.createElement('a');
-                    exploreLink.href = '#';
-                    exploreLink.className = 'explore-gene-link';
-                    exploreLink.textContent = `Explore ${geneName}`;
-                    exploreLink.onclick = function(e) {
-                        e.preventDefault();
-                        geneInput.value = geneCode;
-                        searchGene(geneCode);
-                    };
-                    
-                    exploreContainer.appendChild(exploreLink);
-                    fragment.appendChild(exploreContainer);
+                    try {
+                        // Load full details for this gene
+                        await currentNodeData.results.relatedGenes[geneCode].loadFullDetails();
+                        // Update the drugs parameter with the newly loaded data
+                        drugs = currentNodeData.results.relatedGenes[geneCode].drugsWithInfo;
+                    } catch (error) {
+                        console.error('Error loading full gene details:', error);
+                    }
                 }
+                
+                // Start building HTML string
+                let html = '';
                 
                 // Handle no drugs case
                 if (!drugs || drugs.length === 0) {
-                    const noData = document.createElement('p');
-                    noData.className = 'no-results';
-                    noData.textContent = `No compatible drugs found for ${geneName} (${geneCode})`;
-                    fragment.appendChild(noData);
-                    
-                    drugCards.innerHTML = '';
-                    drugCards.appendChild(fragment);
+                    html = `<p class="no-results">No compatible drugs found for ${geneName} (${geneCode})</p>`;
+                    drugCards.innerHTML = html;
                     console.timeEnd('Show drug cards');
                     return;
                 }
                 
-                title.textContent = `Compatible Drugs for ${geneName}`;
-                fragment.appendChild(title);
+                // Add an "Explore this gene" link for related genes (not center gene)
+                const isRelatedGene = geneCode !== currentNodeData.centerGeneCode;
+                if (isRelatedGene) {
+                    html += `
+                        <div class="explore-gene-container">
+                            <a href="#" class="explore-gene-link" onclick="(function(e) { 
+                                e.preventDefault(); 
+                                document.getElementById('gene-input').value = '${geneCode}'; 
+                                searchGene('${geneCode}');
+                            })(event)">Explore ${geneName}</a>
+                        </div>
+                    `;
+                }
+                
+                html += `<h3 class="gene-title">Compatible Drugs for ${geneName}</h3>`;
                 
                 // Sort drugs by repurposing score if available
                 const sortedDrugs = [...drugs].sort((a, b) => {
@@ -2190,65 +2361,38 @@
                         }
                     }
                     
-                    const card = document.createElement('div');
-                    card.className = `drug-card ${scoreClass}`;
-                    
-                    const drugName = document.createElement('div');
-                    drugName.className = 'drug-name';
-                    drugName.textContent = `${drug.name} (${drug.code})`;
-                    card.appendChild(drugName);
+                    html += `<div class="drug-card ${scoreClass}">`;
+                    html += `<div class="drug-name">${drug.name} (${drug.code})</div>`;
                     
                     // Add repurposing score
                     if (drug.repurposingScore !== undefined) {
-                        const scoreContainer = document.createElement('div');
-                        scoreContainer.className = 'repurposing-score-container';
-                        
-                        const scoreLabel = document.createElement('div');
-                        scoreLabel.className = 'repurposing-score-label';
-                        scoreLabel.textContent = 'Repurposing Score:';
-                        
-                        const scoreValue = document.createElement('div');
-                        scoreValue.className = 'repurposing-score-value';
-                        scoreValue.textContent = `${(drug.repurposingScore * 100).toFixed(1)}%`;
-                        
-                        scoreContainer.appendChild(scoreLabel);
-                        scoreContainer.appendChild(scoreValue);
-                        card.appendChild(scoreContainer);
+                        html += `
+                            <div class="repurposing-score-container">
+                                <div class="repurposing-score-label">Repurposing Score:</div>
+                                <div class="repurposing-score-value">${(drug.repurposingScore * 100).toFixed(1)}%</div>
+                            </div>
+                        `;
                     }
                     
                     if (drug.diseases && drug.diseases.length > 0) {
-                        const diseaseContainer = document.createElement('div');
-                        diseaseContainer.className = 'drug-diseases';
-                        
-                        const diseasesLabel = document.createElement('strong');
-                        diseasesLabel.textContent = 'Associated Diseases:';
-                        diseaseContainer.appendChild(diseasesLabel);
-                        
-                        const diseasesList = document.createElement('ul');
-                        diseasesList.className = 'diseases-list';
+                        html += `<div class="drug-diseases">`;
+                        html += `<strong>Associated Diseases:</strong>`;
+                        html += `<ul class="diseases-list">`;
                         
                         drug.diseases.forEach(disease => {
-                            const li = document.createElement('li');
-                            li.className = 'disease-item';
-                            li.textContent = `${disease.name} (${disease.code})`;
-                            diseasesList.appendChild(li);
+                            html += `<li class="disease-item">${disease.name} (${disease.code})</li>`;
                         });
                         
-                        diseaseContainer.appendChild(diseasesList);
-                        card.appendChild(diseaseContainer);
+                        html += `</ul></div>`;
                     } else {
-                        const noDiseases = document.createElement('div');
-                        noDiseases.className = 'drug-diseases';
-                        noDiseases.textContent = 'No associated diseases found';
-                        card.appendChild(noDiseases);
+                        html += `<div class="drug-diseases">No associated diseases found</div>`;
                     }
                     
-                    fragment.appendChild(card);
+                    html += `</div>`;
                 });
                 
-                // Clear and append
-                drugCards.innerHTML = '';
-                drugCards.appendChild(fragment);
+                // Set innerHTML in a single operation
+                drugCards.innerHTML = html;
                 
                 console.timeEnd('Show drug cards');
             }
@@ -2279,7 +2423,23 @@
             });
 
             // Function to calculate repurposing score
+            // Memoization cache for repurposing score calculations
+            const repurposingScoreCache = new Map();
+            
             function calculateRepurposingScore(drug, baseGeneDiseases, relatedGeneDiseases, relation = "Pathway") {
+                // Create a cache key from drug code and relation type
+                const baseDiseaseHash = baseGeneDiseases?.length ? baseGeneDiseases.map(d => d.code).sort().join('|') : '';
+                const relatedDiseaseHash = relatedGeneDiseases?.length ? relatedGeneDiseases.map(d => d.code).sort().join('|') : '';
+                const cacheKey = `${drug.code}|${baseDiseaseHash}|${relatedDiseaseHash}|${relation}`;
+                
+                // Check cache first (excluding random factor for consistency)
+                if (repurposingScoreCache.has(cacheKey)) {
+                    // Add a slightly different random factor to avoid all scores being identical
+                    const cachedScore = repurposingScoreCache.get(cacheKey);
+                    const randomFactor = (Math.random() * 0.02) - 0.01; // Smaller random factor for cached results
+                    return Math.max(0, Math.min(1, cachedScore + randomFactor));
+                }
+                
                 // Start with a variable base score between 0.15 and 0.35
                 // This creates more variation at the basic level
                 const diseaseCount = drug.diseases?.length || 0;
@@ -2352,6 +2512,9 @@
                     }
                 }
                 
+                // Store the base score in cache (without random factor)
+                repurposingScoreCache.set(cacheKey, score);
+                
                 // Add a small random factor (±3%) to create more variety
                 const randomFactor = (Math.random() * 0.06) - 0.03;
                 score += randomFactor;
@@ -2368,35 +2531,21 @@
             function renderGeneInfo(geneCode, geneName, results) {
                 console.time('Render gene info');
                 
-                // Clear the gene info panel and create a document fragment for faster DOM operations
-                const fragment = document.createDocumentFragment();
-                
-                // Create gene title with code and name
-                const title = document.createElement('h3');
-                title.className = 'gene-title';
-                title.textContent = `${geneName} (${geneCode})`;
-                fragment.appendChild(title);
+                // Build HTML string
+                let html = `<h3 class="gene-title">${geneName} (${geneCode})</h3>`;
                 
                 // Add gene information from Entrez if available
                 if (results.entrezInfo) {
-                    const infoContainer = document.createElement('div');
-                    infoContainer.className = 'gene-description';
+                    html += '<div class="gene-description">';
                     
                     // Add description
                     if (results.entrezInfo.description) {
-                        const descDiv = document.createElement('div');
-                        
-                        const descTitle = document.createElement('div');
-                        descTitle.className = 'gene-description-title';
-                        descTitle.textContent = 'Description:';
-                        descDiv.appendChild(descTitle);
-                        
-                        const descText = document.createElement('div');
-                        descText.className = 'description-text';
-                        descText.textContent = results.entrezInfo.description;
-                        descDiv.appendChild(descText);
-                        
-                        infoContainer.appendChild(descDiv);
+                        html += `
+                            <div>
+                                <div class="gene-description-title">Description:</div>
+                                <div class="description-text">${results.entrezInfo.description}</div>
+                            </div>
+                        `;
                     }
                     
                     // Add summary if different from description
@@ -2406,79 +2555,53 @@
                         
                         // Add a separator if we already added description
                         if (results.entrezInfo.description) {
-                            const separator = document.createElement('hr');
-                            separator.style.margin = '10px 0';
-                            separator.style.border = '0';
-                            separator.style.borderTop = '1px solid rgba(0,0,0,0.1)';
-                            infoContainer.appendChild(separator);
+                            html += '<hr style="margin: 10px 0; border: 0; border-top: 1px solid rgba(0,0,0,0.1);">';
                         }
                         
-                        const summaryDiv = document.createElement('div');
-                        
-                        const summaryTitle = document.createElement('div');
-                        summaryTitle.className = 'gene-description-title';
-                        summaryTitle.textContent = 'Summary:';
-                        summaryDiv.appendChild(summaryTitle);
-                        
-                        const summaryText = document.createElement('div');
-                        summaryText.className = 'summary-text';
-                        summaryText.textContent = results.entrezInfo.summary;
-                        summaryDiv.appendChild(summaryText);
-                        
-                        infoContainer.appendChild(summaryDiv);
+                        html += `
+                            <div>
+                                <div class="gene-description-title">Summary:</div>
+                                <div class="summary-text">${results.entrezInfo.summary}</div>
+                            </div>
+                        `;
                     }
                     
-                    fragment.appendChild(infoContainer);
+                    html += '</div>';
                 }
                 
                 // Display KEGG Orthology information
                 if (results.geneKO && results.geneKO.length > 0) {
-                    const koTitle = document.createElement('h4');
-                    koTitle.textContent = 'KEGG Orthology:';
-                    fragment.appendChild(koTitle);
-                    
-                    const koList = document.createElement('ul');
-                    koList.className = 'ko-list';
+                    html += '<h4>KEGG Orthology:</h4>';
+                    html += '<ul class="ko-list">';
                     
                     results.geneKO.forEach(ko => {
-                        const koItem = document.createElement('li');
-                        koItem.textContent = `${ko.name} (${ko.id})`;
-                        koList.appendChild(koItem);
+                        html += `<li>${ko.name} (${ko.id})</li>`;
                     });
                     
-                    fragment.appendChild(koList);
+                    html += '</ul>';
                 }
                 
                 // Display associated diseases
                 if (results.diseases && results.diseases.length > 0) {
-                    const diseasesTitle = document.createElement('h4');
-                    diseasesTitle.textContent = 'Associated Diseases:';
-                    fragment.appendChild(diseasesTitle);
-                    
-                    const diseasesList = document.createElement('ul');
-                    diseasesList.className = 'diseases-list';
+                    html += '<h4>Associated Diseases:</h4>';
+                    html += '<ul class="diseases-list">';
                     
                     results.diseases.forEach(disease => {
-                        const diseaseItem = document.createElement('li');
-                        diseaseItem.className = 'disease-item';
-                        diseaseItem.textContent = `${disease.name} (${disease.code})`;
-                        diseasesList.appendChild(diseaseItem);
+                        html += `<li class="disease-item">${disease.name} (${disease.code})</li>`;
                     });
                     
-                    fragment.appendChild(diseasesList);
+                    html += '</ul>';
                 } else {
-                    const noDiseases = document.createElement('p');
-                    noDiseases.textContent = 'No associated diseases found.';
-                    fragment.appendChild(noDiseases);
+                    html += '<p>No associated diseases found.</p>';
                 }
                 
-                // Clear and set content
-                geneInfo.innerHTML = '';
-                geneInfo.appendChild(fragment);
+                // Set content in a single operation
+                geneInfo.innerHTML = html;
                 
                 console.timeEnd('Render gene info');
             }
         });
     </script>
+    <script src="fix-script.js"></script>
 </body>
 </html> 
