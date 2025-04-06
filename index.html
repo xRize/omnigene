@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KEGG Gene and Drug Finder</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f7fa;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #3494e6, #ec6ead);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 2.2em;
+        }
+        
+        p.subtitle {
+            margin-top: 10px;
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 25px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+        
+        .input-group {
+            display: flex;
+            margin-bottom: 20px;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px 0 0 4px;
+            font-size: 16px;
+        }
+        
+        button {
+            background: #3494e6;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        
+        #submit-btn {
+            border-radius: 0 4px 4px 0;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        #clear-cache, #debug-btn, #metrics-btn {
+            border-radius: 4px;
+            margin-left: 5px;
+        }
+        
+        .message {
+            padding: 12px 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+        
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        #spinner {
+            display: none;
+            width: 30px;
+            height: 30px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        #results {
+            margin-top: 30px;
+        }
+        
+        h2 {
+            color: #2c3e50;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-top: 30px;
+        }
+        
+        h3 {
+            color: #3494e6;
+            margin-top: 25px;
+        }
+        
+        .execution-time {
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        
+        .gene-list {
+            list-style-type: none;
+            padding: 0;
+        }
+        
+        .gene-item {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #3494e6;
+        }
+        
+        .base-gene {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #e3f2fd;
+            border-radius: 8px;
+            border-left: 4px solid #1976d2;
+        }
+        
+        .gene-title {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 8px;
+            color: #2c3e50;
+        }
+        
+        .drugs-header {
+            font-weight: 600;
+            margin-top: 10px;
+            margin-bottom: 5px;
+            color: #2c3e50;
+        }
+        
+        .drug-list {
+            list-style-type: none;
+            padding-left: 20px;
+        }
+        
+        .drug-list li {
+            margin-bottom: 5px;
+        }
+        
+        .disease-info {
+            font-style: italic;
+            color: #e74c3c;
+            font-size: 0.95em;
+        }
+        
+        .drug-name {
+            font-weight: 500;
+            margin-bottom: 5px;
+        }
+        
+        .diseases-container {
+            margin-left: 20px;
+            margin-top: 5px;
+            margin-bottom: 10px;
+        }
+        
+        .diseases-header {
+            color: #c0392b;
+            font-weight: 500;
+            font-size: 0.9em;
+            display: block;
+            margin-bottom: 3px;
+        }
+        
+        .diseases-list {
+            list-style-type: disc;
+            margin-top: 3px;
+            margin-bottom: 5px;
+            padding-left: 20px;
+        }
+        
+        .disease-item {
+            color: #e74c3c;
+            font-size: 0.9em;
+            margin-bottom: 2px;
+        }
+        
+        .no-diseases {
+            font-style: italic;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+        
+        footer {
+            margin-top: 50px;
+            text-align: center;
+            color: #7f8c8d;
+            font-size: 0.9em;
+        }
+        
+        .example {
+            background-color: #f1f2f6;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-family: monospace;
+        }
+        
+        .example code {
+            font-weight: bold;
+        }
+
+        #debug-output {
+            display: none;
+            background-color: #2d3436;
+            color: #dfe6e9;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .gene-relation {
+            color: #666;
+            font-style: italic;
+            margin: 5px 0 10px 0;
+            font-size: 0.9em;
+        }
+        
+        .ko-header {
+            font-weight: 600;
+            margin-top: 10px;
+            margin-bottom: 5px;
+            color: #2c3e50;
+        }
+        
+        .ko-list {
+            list-style-type: disc;
+            padding-left: 20px;
+            margin-top: 5px;
+            margin-bottom: 15px;
+            color: #34495e;
+        }
+        
+        .ko-list li {
+            margin-bottom: 5px;
+            line-height: 1.4;
+        }
+        
+        .metrics-panel {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin-top: 15px;
+            font-size: 0.85em;
+            color: #495057;
+        }
+        
+        .metrics-title {
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #212529;
+        }
+        
+        .metrics-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 3px;
+        }
+        
+        .metrics-label {
+            flex: 1;
+        }
+        
+        .metrics-value {
+            font-weight: 500;
+            color: #007bff;
+        }
+        
+        .toggle-metrics {
+            background: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: 0.8em;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+        
+        .toggle-metrics:hover {
+            background: #5a6268;
+        }
+        
+        .progress-bar {
+            height: 4px;
+            background-color: #e9ecef;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 10px;
+            display: none;
+        }
+        
+        .progress-bar-inner {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #3494e6, #ec6ead);
+            transition: width 0.3s ease;
+        }
+        
+        .retry-button {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 8px 15px;
+            margin-top: 15px;
+            cursor: pointer;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .retry-button:hover {
+            background: #c0392b;
+        }
+        
+        .status-message {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 8px;
+            font-style: italic;
+        }
+        
+        .api-metrics {
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            padding: 8px 12px;
+            margin: 10px 0;
+            font-size: 0.9em;
+            color: #666;
+            border-left: 3px solid #3494e6;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>KEGG Gene and Drug Finder</h1>
+        <p class="subtitle">Find gene functions, compatible drugs, and associated diseases using KEGG data</p>
+    </header>
+
+    <div class="container">
+        <div id="message" class="message info" style="display: none;"></div>
+        <div id="api-metrics" class="api-metrics"></div>
+        
+        <h2>Search for a Gene</h2>
+        <p>Enter a gene code (e.g., <code>hsa:5747</code> for PTK2) to find related genes, their functions, and compatible drugs.</p>
+        
+        <div class="example">
+            Examples:
+            <ul>
+                <li><code>hsa:5747</code> - Protein tyrosine kinase 2</li>
+                <li><code>hsa:673</code> - BRAF</li>
+                <li><code>hsa:3845</code> - KRAS</li>
+                <li><code>hsa:5594</code> - MAPK1</li>
+            </ul>
+        </div>
+        
+        <form id="gene-form">
+            <div class="input-group">
+                <input type="text" id="gene-input" placeholder="Enter gene code (e.g., hsa:5747)" required>
+                <button type="submit" id="submit-btn">Search</button>
+                <button type="button" id="clear-cache">Clear Cache</button>
+                <button type="button" id="debug-btn">Toggle Debug</button>
+                <button type="button" id="metrics-btn" class="toggle-metrics">Metrics</button>
+            </div>
+        </form>
+        
+        <div id="spinner"></div>
+        <div id="progress" class="progress-bar">
+            <div id="progress-inner" class="progress-bar-inner"></div>
+        </div>
+        <div id="status-message" class="status-message"></div>
+        <button id="retry-button" class="retry-button">Retry Search</button>
+        <div id="metrics-panel" class="metrics-panel" style="display: none;">
+            <div class="metrics-title">Performance Metrics</div>
+            <div class="metrics-item">
+                <span class="metrics-label">Requests:</span>
+                <span class="metrics-value" id="metric-requests">0</span>
+            </div>
+            <div class="metrics-item">
+                <span class="metrics-label">Cache Hits:</span>
+                <span class="metrics-value" id="metric-cache-hits">0</span>
+            </div>
+            <div class="metrics-item">
+                <span class="metrics-label">Cache Hit Rate:</span>
+                <span class="metrics-value" id="metric-hit-rate">0%</span>
+            </div>
+            <div class="metrics-item">
+                <span class="metrics-label">Avg Request Time:</span>
+                <span class="metrics-value" id="metric-avg-time">0ms</span>
+            </div>
+            <div class="metrics-item">
+                <span class="metrics-label">Batch Savings:</span>
+                <span class="metrics-value" id="metric-batch-savings">0 requests</span>
+            </div>
+        </div>
+        <div id="debug-output"></div>
+        <div id="results"></div>
+    </div>
+
+    <footer>
+        <p>Powered by KEGG API | Data fetched directly from the KEGG API</p>
+    </footer>
+
+    <script>
+        // Override console.log to capture debugging information
+        (function() {
+            const originalConsoleLog = console.log;
+            const originalConsoleError = console.error;
+            const debugOutput = [];
+            const maxDebugLines = 100;
+            
+            console.log = function() {
+                const args = Array.from(arguments);
+                debugOutput.push('[LOG] ' + args.join(' '));
+                if (debugOutput.length > maxDebugLines) {
+                    debugOutput.shift();
+                }
+                updateDebugOutput();
+                originalConsoleLog.apply(console, arguments);
+            };
+            
+            console.error = function() {
+                const args = Array.from(arguments);
+                debugOutput.push('[ERROR] ' + args.join(' '));
+                if (debugOutput.length > maxDebugLines) {
+                    debugOutput.shift();
+                }
+                updateDebugOutput();
+                originalConsoleError.apply(console, arguments);
+            };
+            
+            function updateDebugOutput() {
+                const debugEl = document.getElementById('debug-output');
+                if (debugEl) {
+                    debugEl.textContent = debugOutput.join('\n');
+                    // Auto-scroll to bottom
+                    debugEl.scrollTop = debugEl.scrollHeight;
+                }
+            }
+            
+            // Expose for use elsewhere
+            window.debugOutput = debugOutput;
+            window.updateDebugOutput = updateDebugOutput;
+        })();
+        
+        // Setup debug button
+        document.addEventListener('DOMContentLoaded', function() {
+            const debugBtn = document.getElementById('debug-btn');
+            const debugOutput = document.getElementById('debug-output');
+            
+            if (debugBtn && debugOutput) {
+                debugBtn.addEventListener('click', function() {
+                    if (debugOutput.style.display === 'none') {
+                        debugOutput.style.display = 'block';
+                    } else {
+                        debugOutput.style.display = 'none';
+                    }
+                });
+            }
+        });
+        
+        // Setup metrics button
+        document.addEventListener('DOMContentLoaded', function() {
+            const metricsBtn = document.getElementById('metrics-btn');
+            const metricsPanel = document.getElementById('metrics-panel');
+            
+            if (metricsBtn && metricsPanel) {
+                metricsBtn.addEventListener('click', function() {
+                    if (metricsPanel.style.display === 'none') {
+                        metricsPanel.style.display = 'block';
+                        // Update metrics when showing panel
+                        updatePerformanceMetrics();
+                    } else {
+                        metricsPanel.style.display = 'none';
+                    }
+                });
+            }
+            
+            // Update metrics periodically when visible
+            setInterval(function() {
+                if (metricsPanel.style.display !== 'none') {
+                    updatePerformanceMetrics();
+                }
+            }, 2000);
+        });
+        
+        function updatePerformanceMetrics() {
+            if (window.keggApi) {
+                const metrics = window.keggApi.getPerformanceMetrics();
+                document.getElementById('metric-requests').textContent = metrics.requestCount;
+                document.getElementById('metric-cache-hits').textContent = metrics.cacheHits;
+                document.getElementById('metric-hit-rate').textContent = 
+                    metrics.cacheHitRate.toFixed(1) + '%';
+                document.getElementById('metric-avg-time').textContent = 
+                    metrics.averageRequestTime.toFixed(0) + 'ms';
+                
+                // Calculate batch savings (rough estimate)
+                const savedRequests = Math.max(0, metrics.cacheHits - Math.floor(metrics.requestCount / 2));
+                document.getElementById('metric-batch-savings').textContent = 
+                    savedRequests + ' requests';
+            }
+        }
+        
+        // Add progress and status tracking
+        document.addEventListener('DOMContentLoaded', function() {
+            // ... existing code ...
+            
+            // Setup retry button
+            const retryButton = document.getElementById('retry-button');
+            if (retryButton) {
+                retryButton.addEventListener('click', function() {
+                    const geneInput = document.getElementById('gene-input');
+                    if (geneInput && geneInput.value) {
+                        retryButton.style.display = 'none';
+                        const geneForm = document.getElementById('gene-form');
+                        if (geneForm) {
+                            geneForm.dispatchEvent(new Event('submit'));
+                        }
+                    }
+                });
+            }
+            
+            // Expose functions to update UI from API class
+            window.updateProgress = function(percent, statusText) {
+                const progressBar = document.getElementById('progress');
+                const progressInner = document.getElementById('progress-inner');
+                const statusMessage = document.getElementById('status-message');
+                
+                if (progressBar && progressInner) {
+                    if (percent >= 0) {
+                        progressBar.style.display = 'block';
+                        progressInner.style.width = `${Math.min(100, percent)}%`;
+                    } else {
+                        progressBar.style.display = 'none';
+                    }
+                }
+                
+                if (statusMessage && statusText) {
+                    statusMessage.textContent = statusText;
+                    statusMessage.style.display = 'block';
+                }
+            };
+            
+            window.showError = function(title, message) {
+                const messageElement = document.getElementById('message');
+                const retryButton = document.getElementById('retry-button');
+                
+                if (messageElement) {
+                    messageElement.innerHTML = `<strong>${title}</strong>: ${message}`;
+                    messageElement.className = 'message error';
+                    messageElement.style.display = 'block';
+                }
+                
+                if (retryButton) {
+                    retryButton.style.display = 'inline-block';
+                }
+                
+                window.updateProgress(-1);
+                document.getElementById('spinner').style.display = 'none';
+            };
+        });
+    </script>
+
+    <script src="kegg-gene-drug-finder.js"></script>
+</body>
+</html> 

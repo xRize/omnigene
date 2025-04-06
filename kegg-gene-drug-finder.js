@@ -31,10 +31,58 @@ class KeggAPI {
       totalTime: 0
     };
     
-    // Display CORS information message
+    // Display CO
+    // 
+    // S information message
     this._showCorsMessage();
     
     debug("KeggAPI initialized");
+  }
+  
+  // Calculate repurposing score for a drug
+  calculateRepurposingScore(drug, baseGeneDiseases, relatedGeneDiseases, relation = "Pathway") {
+    // Base score for all drugs is 0.3 (on a 0-1 scale)
+    let score = 0.3;
+    
+    debug(`Calculating repurposing score for drug ${drug.code}`);
+    
+    // Add 0.5 points if both genes share at least one disease
+    if (baseGeneDiseases && relatedGeneDiseases && baseGeneDiseases.length > 0 && relatedGeneDiseases.length > 0) {
+      // Create sets of disease codes for efficient comparison
+      const baseDiseaseCodes = new Set(baseGeneDiseases.map(d => d.code));
+      const relatedDiseaseCodes = new Set(relatedGeneDiseases.map(d => d.code));
+      
+      // Check for intersection
+      let hasSharedDisease = false;
+      for (const code of baseDiseaseCodes) {
+        if (relatedDiseaseCodes.has(code)) {
+          hasSharedDisease = true;
+          break;
+        }
+      }
+      
+      if (hasSharedDisease) {
+        score += 0.5;
+        debug(`+0.5 points for shared disease between genes for drug ${drug.code}`);
+      }
+    }
+    
+    // Adjust score based on relationship type
+    if (relation && relation.toLowerCase().includes("activ")) {
+      // +0.2 for activation relationship
+      score += 0.2;
+      debug(`+0.2 points for activation relationship for drug ${drug.code}`);
+    } else if (relation && relation.toLowerCase().includes("inhib")) {
+      // -0.1 for inhibition relationship
+      score -= 0.1;
+      debug(`-0.1 point for inhibition relationship for drug ${drug.code}`);
+    }
+    
+    // Ensure the score is within 0-1 range
+    const finalScore = Math.max(0, Math.min(1, score));
+    
+    debug(`Final repurposing score for drug ${drug.code}: ${finalScore.toFixed(2)}`);
+    return finalScore;
   }
   
   // Show information about KEGG API
@@ -154,6 +202,103 @@ class KeggAPI {
     }
   }
   
+  // Look up gene ID by name
+  async findGeneByName(geneName) {
+    try {
+      debug(`Looking up gene by name: ${geneName}`);
+      const url = `https://rest.kegg.jp/find/genes/${encodeURIComponent(geneName)}`;
+      const response = await this.fetchData(url);
+      
+      if (!response || response.trim() === '') {
+        debug(`No genes found with name: ${geneName}`);
+        return null;
+      }
+      
+      // Parse the response - typically tab-separated format: ID[tab]Description
+      const lines = response.trim().split('\n');
+      const results = [];
+      const exactMatches = [];
+      
+      for (const line of lines) {
+        const parts = line.split('\t');
+        if (parts.length >= 2) {
+          // Extract human gene IDs (starting with hsa:)
+          const geneId = parts[0].trim();
+          const description = parts[1].trim();
+          
+          // Only include human genes
+          if (geneId.startsWith('hsa:')) {
+            const result = {
+              id: geneId,
+              description: description
+            };
+            
+            // Check for the pattern "{geneName}," which indicates an exact gene name match
+            if (description.includes(`${geneName},`)) {
+              debug(`Found EXACT FORMAT MATCH for "${geneName}," in: ${description}`);
+              exactMatches.unshift(result); // Add to beginning of array to prioritize
+              continue; // Skip other checks for this match
+            }
+            
+            // Look for pattern: symbol:GENENAME
+            const symbolMatch = description.match(/symbol:([\w\d-]+)/i);
+            if (symbolMatch) {
+              const symbol = symbolMatch[1];
+              if (symbol.toUpperCase() === geneName.toUpperCase()) {
+                debug(`Found exact match for ${geneName}: ${geneId} (${symbol})`);
+                exactMatches.push(result);
+                continue; // Skip adding to regular results
+              }
+            }
+            
+            // Also check if the gene ID itself contains the exact name
+            if (geneId.includes(`:${geneName}`)) {
+              debug(`Found exact match in ID for ${geneName}: ${geneId}`);
+              exactMatches.push(result);
+              continue; // Skip adding to regular results
+            }
+            
+            results.push(result);
+          }
+        }
+      }
+      
+      debug(`Found ${results.length} total matches and ${exactMatches.length} exact matches for "${geneName}"`);
+      
+      // Return exact matches if any, otherwise return all results
+      return exactMatches.length > 0 ? exactMatches : results;
+    } catch (error) {
+      debug(`Error finding gene by name: ${error.message}`);
+      return null;
+    }
+  }
+  
+  // Process a gene by name, first finding its ID then processing it
+  async processGeneByName(geneName) {
+    console.log(`Finding gene by name: ${geneName}`);
+    const genes = await this.findGeneByName(geneName);
+    
+    if (!genes || genes.length === 0) {
+      console.error("No genes found with that name");
+      throw new Error("No genes found with that name");
+    }
+    
+    // Check if we have multiple matches
+    if (genes.length > 1) {
+      console.log(`Found ${genes.length} matches for "${geneName}". Using the first match: ${genes[0].id}`);
+      
+      // Create a message showing all the matches
+      const matchesInfo = genes.slice(0, 5).map(g => `${g.id} (${g.description.split(';')[0]})`).join(', ');
+      const message = `Multiple genes found matching "${geneName}". Using ${genes[0].id}.\nOther matches: ${matchesInfo}${genes.length > 5 ? ` and ${genes.length - 5} more...` : ''}`;
+      
+      // Display a warning but continue with the first match
+      alert(message);
+    }
+    
+    console.log(`Using gene: ${genes[0].id} - ${genes[0].description}`);
+    return this.processGene(genes[0].id);
+  }
+  
   // Get KO (KEGG Orthology) information for a gene
   async getGeneKO(geneCode) {
     try {
@@ -204,7 +349,7 @@ class KeggAPI {
       }
       
       return koDetails;
-        } catch (error) {
+    } catch (error) {
       debug(`Error getting KO data: ${error.message}`);
       return [];
     }
@@ -289,10 +434,6 @@ class KeggAPI {
       const geneDiseases = await this.getGeneDiseases(formattedGeneCode);
       debug(`Found ${geneDiseases.length} diseases associated with gene ${formattedGeneCode}`);
       
-      // Store disease codes for later comparison
-      const baseGeneDiseasesCodes = geneDiseases.map(disease => disease.code);
-      debug(`Base gene disease codes: ${baseGeneDiseasesCodes.join(', ')}`);
-      
       // 1. Get pathways for gene - correct endpoint format
       const pathwaysUrl = `https://rest.kegg.jp/link/pathway/${formattedGeneCode}`;
       debug(`Fetching pathways: ${pathwaysUrl}`);
@@ -342,21 +483,14 @@ class KeggAPI {
           
           // 3. Get drug details - only if we found drugs
           if (baseDrugs.length > 0) {
-            drugsWithInfo = await this._fetchDrugDetails(baseDrugs);
+            drugsWithInfo = await this._fetchDrugDetails(baseDrugs, geneDiseases);
             
-            // Calculate repurposing score for base gene drugs
-            drugsWithInfo = drugsWithInfo.map(drug => {
-              // For base gene drugs, we only consider the disease association
-              let repurposingScore = 2; // Standard score
-              
-              // +5 if the drug has associated diseases
-              if (drug.diseases && drug.diseases.length > 0) {
-                repurposingScore += 5;
-              }
-              
-              drug.repurposingScore = repurposingScore;
-              return drug;
-            });
+            // Add base repurposing score to each drug of the base gene
+            for (const drug of drugsWithInfo) {
+              // Base gene drugs get a default repurposing score of 0.3 (on 0-1 scale)
+              drug.repurposingScore = 0.3;
+              debug(`Set base repurposing score ${drug.repurposingScore.toFixed(2)} for drug ${drug.code} of base gene`);
+            }
             
             debug(`Processed ${drugsWithInfo.length} drugs with details for base gene: ${formattedGeneCode}`);
           } else {
@@ -377,7 +511,7 @@ class KeggAPI {
       debug(`Processing ${pathwaysToProcess.length} pathways for related genes`);
       
       for (const pathway of pathwaysToProcess) {
-        await this._processPathway(pathway, formattedGeneCode, relatedGenes, baseGeneDiseasesCodes);
+        await this._processPathway(pathway, formattedGeneCode, relatedGenes, geneDiseases);
       }
       
       debug(`Completed processing with ${Object.keys(relatedGenes).length} related genes`);
@@ -398,7 +532,7 @@ class KeggAPI {
   }
   
   // Helper to fetch drug details
-  async _fetchDrugDetails(drugCodes) {
+  async _fetchDrugDetails(drugCodes, baseGeneDiseases = []) {
     const drugsWithInfo = [];
     debug(`Fetching details for ${drugCodes.length} drugs`);
     
@@ -427,7 +561,8 @@ class KeggAPI {
         const drugInfo = {
           code: drugCode,
           name: drugCode,
-          diseases: []
+          diseases: [],
+          repurposingScore: 3 // Base score for all drugs is 3
         };
         
         // Extract drug name first
@@ -522,7 +657,7 @@ class KeggAPI {
   }
   
   // Helper to process pathway and related genes
-  async _processPathway(pathway, sourceGeneCode, relatedGenes, baseGeneDiseasesCodes) {
+  async _processPathway(pathway, sourceGeneCode, relatedGenes, baseGeneDiseases = []) {
     try {
       debug(`Processing pathway: ${pathway}`);
       
@@ -581,8 +716,8 @@ class KeggAPI {
         // Skip if already processed
         if (relatedGenes[relatedGene]) {
           debug(`Gene ${relatedGene} already processed, skipping`);
-          continue;
-        }
+        continue;
+      }
         
         try {
           // Get gene name and details
@@ -603,30 +738,23 @@ class KeggAPI {
           const relatedGeneDiseases = await this.getGeneDiseases(relatedGene);
           debug(`Found ${relatedGeneDiseases.length} diseases for related gene ${relatedGene}`);
           
-          // Determine relationship type (placeholder logic)
-          // Here we're using a hash of the gene code to get consistent but seemingly random relationship types
-          const relationshipType = relatedGene.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 2 === 0 ? 
-            'activation' : 'inhibition';
-            
-          // Check if any diseases from the related gene match the base gene
-          const sharedDiseases = relatedGeneDiseases.filter(disease => 
-            baseGeneDiseasesCodes.includes(disease.code)
-          );
-          const hasSharedDisease = sharedDiseases.length > 0;
-          debug(`Genes share diseases: ${hasSharedDisease ? 'Yes' : 'No'} (${sharedDiseases.length} shared)`);
+          // Look for specific relationship in pathway name or function
+          let relation = "Pathway";
+          if (pathwayName.toLowerCase().includes("activ")) {
+            relation = "Activation";
+          } else if (pathwayName.toLowerCase().includes("inhib")) {
+            relation = "Inhibition";
+          }
           
           // Initialize with basic info in case drug fetch fails
           relatedGenes[relatedGene] = {
             geneName: relatedGeneName,
-            relation: "Pathway",
+            relation: relation,
             pathway: pathwayName,
             ko: relatedGeneKO,
             diseases: relatedGeneDiseases,
             drugs: [],
-            drugsWithInfo: [],
-            relationshipType: relationshipType,
-            hasSharedDisease: hasSharedDisease,
-            sharedDiseases: sharedDiseases
+            drugsWithInfo: []
           };
           
           try {
@@ -663,36 +791,22 @@ class KeggAPI {
             // Get drug details only if we have drug codes
             if (drugCodes.length > 0) {
               debug(`Found ${drugCodes.length} drugs for gene ${relatedGene}, fetching details`);
-              let drugsWithInfo = await this._fetchDrugDetails(drugCodes);
+              const drugsWithInfo = await this._fetchDrugDetails(drugCodes, relatedGeneDiseases);
               
               // Calculate repurposing score for each drug
-              drugsWithInfo = drugsWithInfo.map(drug => {
-                let repurposingScore = 2; // Standard score
-                
-                // +8 if the searched gene and the similar one share the same disease
-                if (hasSharedDisease) {
-                  repurposingScore += 8;
-                  debug(`+8 score for ${drug.name} - genes share diseases`);
-                }
-                
-                // +5 if the drug has at least an associated disease
-                if (drug.diseases && drug.diseases.length > 0) {
-                  repurposingScore += 5;
-                  debug(`+5 score for ${drug.name} - drug has associated diseases`);
-                }
-                
-                // +2 if activation relationship, -1 if inhibition
-                if (relationshipType === 'activation') {
-                  repurposingScore += 2;
-                  debug(`+2 score for ${drug.name} - activation relationship`);
-                } else {
-                  repurposingScore -= 1;
-                  debug(`-1 score for ${drug.name} - inhibition relationship`);
-                }
-                
-                drug.repurposingScore = repurposingScore;
-                return drug;
-              });
+              for (const drug of drugsWithInfo) {
+                // Calculate repurposing score
+                drug.repurposingScore = this.calculateRepurposingScore(
+                  drug, 
+                  baseGeneDiseases, 
+                  relatedGeneDiseases,
+                  relation
+                );
+                debug(`Set repurposing score ${drug.repurposingScore} for drug ${drug.code} of gene ${relatedGene}`);
+              }
+              
+              // Sort drugs by repurposing score (highest first)
+              drugsWithInfo.sort((a, b) => b.repurposingScore - a.repurposingScore);
               
               relatedGenes[relatedGene].drugsWithInfo = drugsWithInfo;
               debug(`Added ${drugsWithInfo.length} drugs with details to gene ${relatedGene}`);
@@ -727,6 +841,369 @@ class KeggAPI {
       successRate: successRate,
       averageRequestTime: avgRequestTime
     };
+  }
+  
+  // Create drug cards HTML from the drug list
+  createDrugCards(drugs) {
+    if (!drugs || drugs.length === 0) {
+      return '<div class="no-drugs">No drugs found for this gene.</div>';
+    }
+    
+    // Sort drugs by repurposing score (highest first)
+    const sortedDrugs = [...drugs].sort((a, b) => {
+      // If repurposing score exists for both, compare them
+      if (a.repurposingScore !== undefined && b.repurposingScore !== undefined) {
+        return b.repurposingScore - a.repurposingScore;
+      }
+      // If only one has a score, prioritize it
+      if (a.repurposingScore !== undefined) return -1;
+      if (b.repurposingScore !== undefined) return 1;
+      // If neither has a score, sort alphabetically
+      return a.name.localeCompare(b.name);
+    });
+    
+    let html = '<div class="drug-cards-container">';
+    
+    sortedDrugs.forEach(drug => {
+      const hasScore = drug.repurposingScore !== undefined;
+      const scoreClass = hasScore ? 
+        (drug.repurposingScore > 0.7 ? 'high-score' : 
+         drug.repurposingScore > 0.4 ? 'medium-score' : 'low-score') : '';
+      
+      html += `
+        <div class="drug-card ${scoreClass}">
+          <h3 class="drug-name">${drug.name}</h3>
+          ${drug.description ? `<p class="drug-description">${drug.description}</p>` : ''}
+          ${hasScore ? `
+            <div class="repurposing-score-container">
+              <div class="repurposing-score-label">Repurposing Score:</div>
+              <div class="repurposing-score-value">${(drug.repurposingScore * 100).toFixed(1)}%</div>
+            </div>
+          ` : ''}
+        </div>
+      `;
+    });
+    
+    html += '</div>';
+    return html;
+  }
+  
+  // Process a gene to find related genes and drugs
+  async processGene(geneId) {
+    try {
+      debug(`Processing gene: ${geneId}`);
+      // Get related genes and drugs
+      const result = await this.getRelatedGenesAndDrugs(geneId);
+      
+      if (result.error) {
+        console.error("Error processing gene:", result.error);
+        throw new Error(result.message || result.error);
+      }
+      
+      // Extract data from result
+      const { geneName, diseases, drugsWithInfo, relatedGenes } = result;
+      
+      // Create gene info object
+      const geneInfo = {
+        id: geneId,
+        name: geneName,
+        description: `${diseases?.length || 0} associated diseases`
+      };
+      
+      // Display the gene info
+      this.displayGeneInfo(geneInfo);
+      
+      // Extract related genes data for visualization
+      const relatedGenesArray = [];
+      for (const [geneId, geneData] of Object.entries(relatedGenes)) {
+        relatedGenesArray.push({
+          id: geneId,
+          name: geneData.geneName,
+          description: geneData.relation || "Related Gene"
+        });
+      }
+      
+      // Create the network visualization
+      this.createNetworkVisualization(geneId, relatedGenesArray);
+      
+      // Collect all drugs from the base gene and related genes
+      let allDrugs = [...(drugsWithInfo || [])];
+      
+      // Add drugs from related genes
+      for (const geneData of Object.values(relatedGenes)) {
+        if (geneData.drugsWithInfo && geneData.drugsWithInfo.length > 0) {
+          allDrugs = [...allDrugs, ...geneData.drugsWithInfo];
+        }
+      }
+      
+      // Remove duplicates (by drug code)
+      const uniqueDrugs = [];
+      const seenDrugCodes = new Set();
+      
+      for (const drug of allDrugs) {
+        if (!seenDrugCodes.has(drug.code)) {
+          seenDrugCodes.add(drug.code);
+          uniqueDrugs.push(drug);
+        }
+      }
+      
+      debug(`Displaying ${uniqueDrugs.length} unique drugs`);
+      
+      // Display drug cards
+      this.displayDrugCards(uniqueDrugs);
+      
+      return result;
+    } catch (error) {
+      console.error("Error processing gene:", error);
+      throw error;
+    }
+  }
+  
+  // Display gene information
+  displayGeneInfo(geneInfo) {
+    const geneInfoElement = document.getElementById('gene-info');
+    if (!geneInfoElement) return;
+    
+    geneInfoElement.innerHTML = `
+      <h2>Gene: ${geneInfo.name || geneInfo.id}</h2>
+      ${geneInfo.description ? `<p>${geneInfo.description}</p>` : ''}
+      ${geneInfo.pathway ? `<p><strong>Pathway:</strong> ${geneInfo.pathway}</p>` : ''}
+      <p><strong>ID:</strong> ${geneInfo.id}</p>
+    `;
+  }
+  
+  // Display drug cards
+  displayDrugCards(drugs) {
+    const drugCardsElement = document.getElementById('drug-cards');
+    if (!drugCardsElement) return;
+    
+    drugCardsElement.innerHTML = `
+      <h2>Related Drugs</h2>
+      ${this.createDrugCards(drugs)}
+    `;
+  }
+  
+  // Create a network visualization for the gene and its relations
+  createNetworkVisualization(centralGeneId, relatedGenes) {
+    const graphElement = document.getElementById('graph');
+    if (!graphElement) return;
+    
+    // Clear previous graph
+    graphElement.innerHTML = '';
+    
+    // Create SVG
+    const width = graphElement.clientWidth || 800;
+    const height = graphElement.clientHeight || 600;
+    
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("height", "100%");
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    graphElement.appendChild(svg);
+    
+    // Create nodes data
+    const nodes = [
+        { id: centralGeneId, name: this.formatGeneId(centralGeneId), type: 'central' },
+        ...relatedGenes.map(gene => ({
+            id: gene.id,
+            name: this.formatGeneId(gene.id),
+            type: 'related',
+            description: gene.description || ''
+        }))
+    ];
+    
+    // Create a simple force-directed layout
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.4;
+    
+    // Position central gene in the middle
+    const centralNode = nodes[0];
+    centralNode.x = centerX;
+    centralNode.y = centerY;
+    
+    // Position related genes in a circle around the central gene
+    const relatedNodes = nodes.slice(1);
+    const angleStep = (2 * Math.PI) / relatedNodes.length;
+    
+    relatedNodes.forEach((node, i) => {
+        const angle = i * angleStep;
+        node.x = centerX + radius * Math.cos(angle);
+        node.y = centerY + radius * Math.sin(angle);
+    });
+    
+    // Draw edges
+    relatedNodes.forEach(node => {
+        const edge = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        edge.setAttribute("x1", centralNode.x);
+        edge.setAttribute("y1", centralNode.y);
+        edge.setAttribute("x2", node.x);
+        edge.setAttribute("y2", node.y);
+        edge.setAttribute("stroke", "#aaa");
+        edge.setAttribute("stroke-width", "1");
+        svg.appendChild(edge);
+    });
+    
+    // Draw nodes
+    nodes.forEach(node => {
+        const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+        group.setAttribute("transform", `translate(${node.x},${node.y})`);
+        
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("r", node.type === 'central' ? 20 : 15);
+        circle.setAttribute("fill", node.type === 'central' ? "#4CAF50" : "#2196F3");
+        
+        const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("dy", "0.3em");
+        text.setAttribute("fill", "white");
+        text.setAttribute("font-size", "10");
+        text.textContent = node.name;
+        
+        group.appendChild(circle);
+        group.appendChild(text);
+        
+        // Add tooltip on hover
+        group.addEventListener('mouseenter', (event) => {
+            const tooltip = document.getElementById('tooltip');
+            if (tooltip) {
+                tooltip.innerHTML = `
+                    <div><strong>${node.name}</strong></div>
+                    ${node.description ? `<div>${node.description}</div>` : ''}
+                `;
+                tooltip.style.display = 'block';
+                tooltip.style.left = `${event.pageX + 10}px`;
+                tooltip.style.top = `${event.pageY + 10}px`;
+            }
+        });
+        
+        group.addEventListener('mouseleave', () => {
+            const tooltip = document.getElementById('tooltip');
+            if (tooltip) {
+                tooltip.style.display = 'none';
+            }
+        });
+        
+        svg.appendChild(group);
+    });
+  }
+  
+  // Format gene ID for display (remove 'hsa:' prefix)
+  formatGeneId(id) {
+    return id.replace('hsa:', '');
+  }
+}
+
+// Drug Finder class for displaying drug information
+class DrugFinder {
+  constructor(results) {
+    this.results = results;
+  }
+
+  showBaseDrugs() {
+    const resultContainer = document.getElementById('drug-results');
+    const drugsContainer = document.createElement('div');
+    drugsContainer.className = 'gene-drugs';
+    
+    if (!this.results || !this.results.drugsWithInfo || this.results.drugsWithInfo.length === 0) {
+      drugsContainer.innerHTML = `
+        <h3>Direct Drug Associations for ${this.results?.geneName || 'Unknown Gene'}</h3>
+        <p class="no-results">No directly associated drugs found for this gene.</p>
+      `;
+      resultContainer.appendChild(drugsContainer);
+      return;
+    }
+    
+    drugsContainer.innerHTML = `
+      <h3>Direct Drug Associations for ${this.results.geneName}</h3>
+      <div class="drugs-grid">
+        ${this.results.drugsWithInfo.map(drug => {
+          // Determine score class based on value
+          const hasScore = drug.repurposingScore !== undefined;
+          const scoreClass = hasScore ? 
+            (drug.repurposingScore > 0.7 ? 'high-score' :
+             drug.repurposingScore > 0.4 ? 'medium-score' : 'low-score') : '';
+          
+          return `
+            <div class="drug-card ${scoreClass}">
+              <div class="drug-name">${drug.name} (${drug.code})</div>
+              ${drug.diseases && drug.diseases.length > 0 ? `
+                <div class="drug-diseases">
+                  <strong>Associated Diseases:</strong>
+                  <ul class="diseases-list">
+                    ${drug.diseases.map(disease => 
+                      `<li class="disease-item">${disease.name} (${disease.code})</li>`
+                    ).join('')}
+                  </ul>
+                </div>
+              ` : '<div class="drug-diseases">No associated diseases</div>'}
+              <div class="repurposing-score-container">
+                <div class="repurposing-score-label">Repurposing Score:</div>
+                <div class="repurposing-score-value">${(drug.repurposingScore * 100).toFixed(1)}%</div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+    
+    resultContainer.appendChild(drugsContainer);
+  }
+
+  showRelatedDrugs() {
+    const resultContainer = document.getElementById('drug-results');
+    
+    if (!this.results || !this.results.relatedGenes || Object.keys(this.results.relatedGenes).length === 0) {
+      const noResultsElem = document.createElement('div');
+      noResultsElem.className = 'no-related-genes';
+      noResultsElem.innerHTML = `<p>No related genes found to analyze for drug interactions.</p>`;
+      resultContainer.appendChild(noResultsElem);
+      return;
+    }
+    
+    for (const [geneCode, geneInfo] of Object.entries(this.results.relatedGenes)) {
+      // Skip if no drugs for this gene
+      if (!geneInfo.drugsWithInfo || geneInfo.drugsWithInfo.length === 0) continue;
+      
+      const geneContainer = document.createElement('div');
+      geneContainer.className = 'related-gene-drugs';
+      
+      geneContainer.innerHTML = `
+        <h3>Related Gene: ${geneInfo.name} (${geneCode})</h3>
+        <div class="relation-info">Relation: ${geneInfo.relation || 'Pathway'}</div>
+        <div class="drugs-grid">
+          ${geneInfo.drugsWithInfo.map(drug => {
+            // Determine score class based on value
+            const hasScore = drug.repurposingScore !== undefined;
+            const scoreClass = hasScore ? 
+              (drug.repurposingScore > 0.7 ? 'high-score' :
+               drug.repurposingScore > 0.4 ? 'medium-score' : 'low-score') : '';
+            
+            return `
+              <div class="drug-card ${scoreClass}">
+                <div class="drug-name">${drug.name} (${drug.code})</div>
+                ${drug.diseases && drug.diseases.length > 0 ? `
+                  <div class="drug-diseases">
+                    <strong>Associated Diseases:</strong>
+                    <ul class="diseases-list">
+                      ${drug.diseases.map(disease => 
+                        `<li class="disease-item">${disease.name} (${disease.code})</li>`
+                      ).join('')}
+                    </ul>
+                  </div>
+                ` : '<div class="drug-diseases">No associated diseases</div>'}
+                <div class="repurposing-score-container">
+                  <div class="repurposing-score-label">Repurposing Score:</div>
+                  <div class="repurposing-score-value">${(drug.repurposingScore * 100).toFixed(1)}%</div>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+      
+      resultContainer.appendChild(geneContainer);
+    }
   }
 }
 
@@ -858,8 +1335,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     function displayResults(data, geneCode) {
       if (!resultsContainer) return;
     
-    // Clear previous results
+    // Clear previous results and create a container for the drug results 
       resultsContainer.innerHTML = '';
+      const drugResults = document.createElement('div');
+      drugResults.id = 'drug-results';
       
       // Create header
       const header = document.createElement('h2');
@@ -869,8 +1348,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Create main sections
       const mainGeneSection = document.createElement('div');
       mainGeneSection.className = 'base-gene';
-      
-      const relatedGenesSection = document.createElement('div');
       
       // Main gene information
       const mainGeneHeader = document.createElement('h3');
@@ -916,194 +1393,30 @@ document.addEventListener('DOMContentLoaded', async () => {
         mainGeneSection.appendChild(diseasesList);
       }
 
-      // Display drugs for the base gene
-      if (data.drugsWithInfo && data.drugsWithInfo.length > 0) {
-        const drugsHeader = document.createElement('p');
-        drugsHeader.className = 'drugs-header';
-        drugsHeader.textContent = `Compatible drugs (${data.drugsWithInfo.length}):`;
-        mainGeneSection.appendChild(drugsHeader);
-      
-        const drugsList = document.createElement('ul');
-        drugsList.className = 'drug-list';
-        
-        // Sort drugs by repurposing score (descending)
-        const sortedDrugs = [...data.drugsWithInfo].sort((a, b) => (b.repurposingScore || 0) - (a.repurposingScore || 0));
-      
-        sortedDrugs.forEach((drug, index) => {
-          const drugItem = document.createElement('li');
-          
-          const scoreDisplay = drug.repurposingScore ? 
-            `<span class="repurposing-score">Repurposing Score: ${drug.repurposingScore}</span>` : '';
-          
-          drugItem.innerHTML = `
-            <div class="drug-name">${index + 1}. ${drug.name} (${drug.code}) ${scoreDisplay}</div>
-            ${drug.diseases && drug.diseases.length > 0 ? 
-              `<div class="diseases-container">
-                <span class="diseases-header">Associated diseases:</span>
-                <ul class="diseases-list">
-                  ${drug.diseases.map(disease => 
-                    `<li class="disease-item">${disease.name} (${disease.code})</li>`
-                  ).join('')}
-                </ul>
-              </div>` : 
-              '<span class="no-diseases"> - No associated diseases found</span>'
-            }
-          `;
-        drugsList.appendChild(drugItem);
-      });
-      
-        mainGeneSection.appendChild(drugsList);
-    } else {
-      const noDrugsP = document.createElement('p');
-      noDrugsP.textContent = 'No compatible drugs found for this gene.';
-        mainGeneSection.appendChild(noDrugsP);
-    }
-    
+      // Add the main gene section to the results container
       resultsContainer.appendChild(mainGeneSection);
-    
-    // Show related genes and drugs
-    const relatedGenesHeader = document.createElement('h3');
-      relatedGenesHeader.textContent = `Similar Genes with Compatible Drugs (${Object.keys(data.relatedGenes).length}):`;
-      relatedGenesSection.appendChild(relatedGenesHeader);
       
-      // Display related genes
-      if (Object.keys(data.relatedGenes).length > 0) {
-      const geneList = document.createElement('ul');
-      geneList.className = 'gene-list';
+      // Add the drug results container
+      resultsContainer.appendChild(drugResults);
       
-      let geneCounter = 1;
-        for (const [geneCode, geneData] of Object.entries(data.relatedGenes)) {
-        const geneItem = document.createElement('li');
-        geneItem.className = 'gene-item';
-        
-          // Basic gene info
-          let geneHTML = `
-            <div class="gene-title">${geneCounter++}. ${geneData.geneName} (${geneCode})</div>
-            <p class="gene-relation">
-              Relation: ${geneData.relation || 'Unknown'} - 
-              Pathway: ${geneData.pathway || 'Unknown'} - 
-              Relationship Type: <span class="${geneData.relationshipType}">${geneData.relationshipType || 'Unknown'}</span>
-            </p>
-          `;
-          
-          // Add shared disease information if available
-          if (geneData.hasSharedDisease && geneData.sharedDiseases && geneData.sharedDiseases.length > 0) {
-            geneHTML += `
-              <p class="shared-diseases-header" style="color: #e67e22; font-weight: bold;">Shared diseases with base gene:</p>
-              <ul class="shared-diseases-list">
-                ${geneData.sharedDiseases.map(disease => 
-                  `<li class="shared-disease-item" style="color: #e67e22;">${disease.name} (${disease.code})</li>`
-                ).join('')}
-              </ul>
-            `;
-          }
-          
-          // Add KO information if available
-          if (geneData.ko && geneData.ko.length > 0) {
-            geneHTML += `
-              <p class="ko-header">KEGG Orthology:</p>
-              <ul class="ko-list">
-                ${geneData.ko.map(ko => `<li>${ko.name} (${ko.id})</li>`).join('')}
-              </ul>
-            `;
-          }
-            
-            // Add disease information if available
-          if (geneData.diseases && geneData.diseases.length > 0) {
-            geneHTML += `
-              <p class="diseases-header">Associated diseases:</p>
-              <ul class="diseases-list">
-                ${geneData.diseases.map(disease => `<li class="disease-item">${disease.name} (${disease.code})</li>`).join('')}
-              </ul>
-            `;
-          }
-          
-          // Add drug information
-          if (geneData.drugsWithInfo && geneData.drugsWithInfo.length > 0) {
-            // Sort drugs by repurposing score (descending)
-            const sortedDrugs = [...geneData.drugsWithInfo].sort((a, b) => (b.repurposingScore || 0) - (a.repurposingScore || 0));
-            
-            geneHTML += `
-              <p>Compatible drugs (${sortedDrugs.length}):</p>
-              <ul class="drug-list">
-                ${sortedDrugs.map((drug, index) => {
-                  const scoreDisplay = drug.repurposingScore ? 
-                    `<span class="repurposing-score" style="font-weight: bold; color: #3498db;">Repurposing Score: ${drug.repurposingScore}</span>` : '';
-                  
-                  return `
-                    <li>
-                      <div class="drug-name">${index + 1}. ${drug.name} (${drug.code}) ${scoreDisplay}</div>
-                      ${drug.diseases && drug.diseases.length > 0 ? 
-                        `<div class="diseases-container">
-                          <span class="diseases-header">Associated diseases:</span>
-                          <ul class="diseases-list">
-                            ${drug.diseases.map(disease => 
-                              `<li class="disease-item">${disease.name} (${disease.code})</li>`
-                            ).join('')}
-                          </ul>
-                        </div>` : 
-                        '<span class="no-diseases"> - No associated diseases found</span>'
-                      }
-                    </li>
-                  `;
-                }).join('')}
-              </ul>
-            `;
-          } else {
-            geneHTML += '<p>No compatible drugs found for this gene.</p>';
-          }
-          
-          geneItem.innerHTML = geneHTML;
-        geneList.appendChild(geneItem);
-      }
-      
-        relatedGenesSection.appendChild(geneList);
-      } else {
-        const noGenesP = document.createElement('p');
-        noGenesP.textContent = 'No similar genes with compatible drugs found.';
-        relatedGenesSection.appendChild(noGenesP);
-      }
-      
-      resultsContainer.appendChild(relatedGenesSection);
+      // Set up the finder to display drugs
+      const finder = new DrugFinder(data);
+      finder.showBaseDrugs();
+      finder.showRelatedDrugs();
     }
-    
-    // Add custom CSS for repurposing score
-    const style = document.createElement('style');
-    style.textContent = `
-      .repurposing-score {
-        margin-left: 10px;
-        padding: 2px 6px;
-        background-color: #3498db;
-        color: white;
-        border-radius: 4px;
-        font-size: 0.9em;
+      
+      // Expose keggApi for debugging
+      window.keggApi = keggApi;
+      
+      // Log readiness
+      debug('KEGG Gene and Drug Finder application initialized');
+    } catch (error) {
+      console.error('Error initializing application:', error);
+      const messageElement = document.getElementById('message');
+      if (messageElement) {
+        messageElement.textContent = `Error initializing application: ${error.message}`;
+        messageElement.className = 'message error';
+        messageElement.style.display = 'block';
       }
-      .activation {
-        color: #2ecc71;
-        font-weight: bold;
-      }
-      .inhibition {
-        color: #e74c3c;
-        font-weight: bold;
-      }
-      .shared-disease-item {
-        font-weight: bold;
-      }
-    `;
-    document.head.appendChild(style);
-    
-    // Expose keggApi for debugging
-    window.keggApi = keggApi;
-    
-    // Log readiness
-    debug('KEGG Gene and Drug Finder application initialized');
-  } catch (error) {
-    console.error('Error initializing application:', error);
-    const messageElement = document.getElementById('message');
-    if (messageElement) {
-      messageElement.textContent = `Error initializing application: ${error.message}`;
-      messageElement.className = 'message error';
-      messageElement.style.display = 'block';
     }
-  }
-}); 
+  });

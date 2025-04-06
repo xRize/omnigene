@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KEGG Drug API Test</title>
+    <style>
+        body { font-family: sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        #results { white-space: pre-wrap; background: #f5f5f5; padding: 10px; border-radius: 4px; }
+        #raw { max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; margin-top: 10px; }
+        button { padding: 10px 15px; background: #4CAF50; color: white; border: none; cursor: pointer; }
+        input { padding: 8px; width: 200px; }
+        .disease { color: #e74c3c; margin-left: 20px; }
+    </style>
+</head>
+<body>
+    <h1>KEGG Drug API Tester</h1>
+    <div>
+        <input type="text" id="drug-code" placeholder="Drug code (e.g., D00036)" value="D00036">
+        <button id="fetch-btn">Fetch Drug</button>
+    </div>
+    <h2>Results:</h2>
+    <div id="results">Enter a drug code and click "Fetch Drug"</div>
+    <h3>Parsed Diseases:</h3>
+    <div id="diseases"></div>
+    <h3>Raw Response:</h3>
+    <div id="raw"></div>
+
+    <script>
+        document.getElementById('fetch-btn').addEventListener('click', async () => {
+            const drugCode = document.getElementById('drug-code').value.trim();
+            if (!drugCode) return alert('Please enter a drug code');
+            
+            const formattedCode = drugCode.startsWith('dr:') ? drugCode : `dr:${drugCode}`;
+            const resultsDiv = document.getElementById('results');
+            const rawDiv = document.getElementById('raw');
+            const diseasesDiv = document.getElementById('diseases');
+            
+            resultsDiv.textContent = `Fetching ${formattedCode}...`;
+            diseasesDiv.innerHTML = '';
+            rawDiv.textContent = '';
+            
+            try {
+                const response = await fetch(`https://rest.kegg.jp/get/${formattedCode}`, {
+                    headers: { 'Accept': 'text/plain' }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error ${response.status}`);
+                }
+                
+                const text = await response.text();
+                rawDiv.textContent = text;
+                
+                // Log the entire structure of the response
+                const lines = text.split('\n');
+                let currentSection = '';
+                let sectionContent = {};
+                
+                resultsDiv.textContent = `Drug ${formattedCode} Structure:\n\n`;
+                
+                for (let i = 0; i < lines.length; i++) {
+                    const line = lines[i];
+                    
+                    // Check for main sections (start at beginning of line with capital letters)
+                    if (line.match(/^[A-Z]+\s/) && !/^\s/.test(line)) {
+                        currentSection = line.split(' ')[0];
+                        if (!sectionContent[currentSection]) {
+                            sectionContent[currentSection] = [];
+                        }
+                        resultsDiv.textContent += `${currentSection} section found at line ${i+1}\n`;
+                    }
+                    
+                    // Add line to current section
+                    if (currentSection && line.trim()) {
+                        sectionContent[currentSection].push(line);
+                    }
+                }
+                
+                // Look at the disease section specifically
+                const diseaseLines = sectionContent['DISEASE'] || [];
+                resultsDiv.textContent += `\nDISEASE section has ${diseaseLines.length} lines\n`;
+                
+                if (diseaseLines.length > 0) {
+                    // Different approach for disease parsing
+                    // First, collect the disease section as a whole block
+                    const diseaseText = text.substring(
+                        text.indexOf('DISEASE'),
+                        text.indexOf('\n', text.indexOf('DISEASE') + 7) + 1
+                    );
+                    
+                    // Look for disease codes with different regex patterns
+                    const patterns = [
+                        /\[DS:([\w\d]+)\]/g,
+                        /DISEASE\s+(.*?)\s+\[DS:([\w\d]+)\]/g,
+                        /\n\s+(.*?)\s+\[DS:([\w\d]+)\]/g
+                    ];
+                    
+                    let allMatches = [];
+                    let foundDiseases = [];
+                    
+                    resultsDiv.textContent += '\nTrying different regex patterns:\n';
+                    
+                    // Method 1: Full disease section extraction
+                    const diseaseSectionMatch = text.match(/DISEASE([\s\S]*?)(?=\n[A-Z]+|\n\n|$)/);
+                    if (diseaseSectionMatch) {
+                        const entireDiseaseSection = diseaseSectionMatch[0];
+                        resultsDiv.textContent += `Full disease section found (${entireDiseaseSection.length} chars)\n`;
+                        
+                        // Now find disease codes inside this section
+                        const diseaseCodeMatches = entireDiseaseSection.match(/\[DS:([\w\d]+)\]/g);
+                        if (diseaseCodeMatches) {
+                            resultsDiv.textContent += `Found ${diseaseCodeMatches.length} disease codes in section\n`;
+                            
+                            // Extract individual lines from the disease section
+                            const diseaseLines = entireDiseaseSection.split('\n')
+                                .filter(line => line.trim().length > 0);
+                            
+                            resultsDiv.textContent += `Found ${diseaseLines.length} non-empty lines in disease section\n`;
+                            
+                            // Process each line to find disease codes and names
+                            for (const line of diseaseLines) {
+                                const dsMatch = line.match(/\[DS:([\w\d]+)\]/);
+                                if (dsMatch) {
+                                    // Extract disease name - everything before the DS code
+                                    let diseaseName = line.replace(/DISEASE\s+/, '')
+                                                        .replace(/\[DS:[\w\d]+\].*$/, '')
+                                                        .trim();
+                                    
+                                    if (!diseaseName && line.trim().startsWith('[')) {
+                                        // This might be a continuation line with just the code
+                                        // Try to find the actual disease name in previous lines
+                                        const prevLineIndex = diseaseLines.indexOf(line) - 1;
+                                        if (prevLineIndex >= 0) {
+                                            diseaseName = diseaseLines[prevLineIndex]
+                                                .replace(/DISEASE\s+/, '')
+                                                .trim();
+                                        }
+                                    }
+                                    
+                                    foundDiseases.push({
+                                        code: dsMatch[1],
+                                        name: diseaseName || 'Unknown'
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Display found diseases
+                    if (foundDiseases.length > 0) {
+                        resultsDiv.textContent += `\nFound ${foundDiseases.length} diseases:\n`;
+                        diseasesDiv.innerHTML = '<ul>';
+                        
+                        foundDiseases.forEach(disease => {
+                            resultsDiv.textContent += `- ${disease.name} [DS:${disease.code}]\n`;
+                            diseasesDiv.innerHTML += `<li class="disease">${disease.name} [DS:${disease.code}]</li>`;
+                        });
+                        
+                        diseasesDiv.innerHTML += '</ul>';
+                    } else {
+                        diseasesDiv.innerHTML = '<p>No diseases found in the response</p>';
+                    }
+                } else {
+                    diseasesDiv.innerHTML = '<p>No DISEASE section found in the response</p>';
+                }
+                
+            } catch (error) {
+                resultsDiv.textContent = `Error: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html> 

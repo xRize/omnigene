@@ -197,6 +197,48 @@
             box-sizing: border-box;
         }
         
+        /* Repurposing score styles */
+        .repurposing-score {
+            margin: 5px 0;
+            padding: 6px 10px;
+            background-color: #f0f8ff;
+            border-radius: 4px;
+            border-left: 4px solid #5f6cff;
+            display: inline-block;
+            font-weight: 500;
+        }
+        
+        .repurposing-score strong {
+            color: #5f6cff;
+            font-weight: 700;
+            font-size: 1.1em;
+        }
+        
+        /* High, medium, low score colors */
+        .high-score .repurposing-score {
+            border-left-color: #4CAF50;
+        }
+        
+        .medium-score .repurposing-score {
+            border-left-color: #FFC107;
+        }
+        
+        .low-score .repurposing-score {
+            border-left-color: #F44336;
+        }
+        
+        .high-score .repurposing-score strong {
+            color: #4CAF50;
+        }
+        
+        .medium-score .repurposing-score strong {
+            color: #FFC107;
+        }
+        
+        .low-score .repurposing-score strong {
+            color: #F44336;
+        }
+        
         .gene-title {
             color: #2c3e50;
             margin-top: 0;
@@ -464,6 +506,82 @@
                 margin-top: 40px;
             }
         }
+        
+        .search-button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+
+        .search-button:hover {
+            background-color: #45a049;
+        }
+        
+        /* Repurposing score styles */
+        .drug-card.high-score {
+            border-left-color: #4CAF50;
+        }
+        
+        .drug-card.medium-score {
+            border-left-color: #FFC107;
+        }
+        
+        .drug-card.low-score {
+            border-left-color: #F44336;
+        }
+        
+        .high-score .repurposing-score strong {
+            color: #4CAF50;
+        }
+        
+        .medium-score .repurposing-score strong {
+            color: #FFC107;
+        }
+        
+        .low-score .repurposing-score strong {
+            color: #F44336;
+        }
+        
+        /* The next block of styles (loading-spinner, results-container) should be removed */
+        
+        /* High, medium, low score colors */
+        
+        /* Repurposing score container styles */
+        .repurposing-score-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.1);
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin-top: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .repurposing-score-label {
+            font-weight: 500;
+        }
+        
+        .repurposing-score-value {
+            font-weight: 700;
+        }
+        
+        .high-score .repurposing-score-value {
+            color: #4CAF50;
+        }
+        
+        .medium-score .repurposing-score-value {
+            color: #FFC107;
+        }
+        
+        .low-score .repurposing-score-value {
+            color: #F44336;
+        }
     </style>
 </head>
 <body>
@@ -487,6 +605,8 @@
                 <button class="search-btn" id="search-btn">Visualize</button>
             </div>
         </div>
+        
+        <div id="tooltip"></div>
         
         <div class="main-content">
             <div class="left-panel">
@@ -779,7 +899,7 @@
                         // Fetch drug details in parallel if we found drugs
                         if (baseDrugs.length > 0) {
                             updateProgress("DRUG_DETAILS", "Fetching drug details...");
-                            drugsWithInfo = await this._fetchDrugDetails(baseDrugs);
+                            drugsWithInfo = await this._fetchDrugDetails(baseDrugs, geneDiseases);
                             debug(`Processed ${drugsWithInfo.length} drugs with details for base gene: ${formattedGeneCode}`);
                             updateProgress(null, null, WORK_UNITS.DRUG_DETAILS);
                         }
@@ -891,11 +1011,7 @@
                                 ko: [],
                                 diseases: [],
                                 drugs: [],
-                                drugsWithInfo: [],
-                                relationshipType: relatedGene.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 2 === 0 ? 
-                                    'activation' : 'inhibition',
-                                hasSharedDisease: false,
-                                sharedDiseases: []
+                                drugsWithInfo: []
                             };
                             
                             // Gather gene details in parallel
@@ -928,36 +1044,30 @@
                                 // Get drug details if we have any
                                 let geneRelatedDrugsWithInfo = [];
                                 if (drugCodes.length > 0) {
-                                    geneRelatedDrugsWithInfo = await this._fetchDrugDetails(drugCodes);
+                                    geneRelatedDrugsWithInfo = await this._fetchDrugDetails(drugCodes, relatedGeneDiseases);
                                     
-                                    // Apply additional repurposing score factors based on gene relationships
-                                    geneRelatedDrugsWithInfo = geneRelatedDrugsWithInfo.map(drug => {
-                                        // Get the base score set in _fetchDrugDetails method
-                                        let repurposingScore = drug.repurposingScore || 2;
-                                        
-                                        // +8 if genes share diseases
-                                        const hasSharedDisease = relatedGeneDiseases.some(disease => 
-                                            geneDiseases.some(gDisease => gDisease.code === disease.code));
-                                        if (hasSharedDisease) {
-                                            repurposingScore += 8;
-                                            debug(`+8 score for ${drug.name} - genes share diseases`);
+                                    // Calculate repurposing score for each drug
+                                    for (const drug of geneRelatedDrugsWithInfo) {
+                                        // Determine relationship type based on pathway name
+                                        let relation = "Pathway";
+                                        if (pathwayResult.pathwayName.toLowerCase().includes("activ")) {
+                                            relation = "Activation";
+                                        } else if (pathwayResult.pathwayName.toLowerCase().includes("inhib")) {
+                                            relation = "Inhibition";
                                         }
                                         
-                                        // +2 if activation relationship, -1 if inhibition
-                                        const relationshipType = relatedGene.split('').reduce((acc, char) => 
-                                            acc + char.charCodeAt(0), 0) % 2 === 0 ? 'activation' : 'inhibition';
-                                        
-                                        if (relationshipType === 'activation') {
-                                            repurposingScore += 2;
-                                            debug(`+2 score for ${drug.name} - activation relationship`);
-                                        } else {
-                                            repurposingScore -= 1;
-                                            debug(`-1 score for ${drug.name} - inhibition relationship`);
-                                        }
-                                        
-                                        drug.repurposingScore = repurposingScore;
-                                        return drug;
-                                    });
+                                        // Calculate repurposing score
+                                        drug.repurposingScore = calculateRepurposingScore(
+                                            drug,
+                                            geneDiseases, // Base gene diseases
+                                            relatedGeneDiseases, // Related gene diseases
+                                            relation
+                                        );
+                                        debug(`Set repurposing score ${drug.repurposingScore.toFixed(2)} for drug ${drug.code} of gene ${relatedGene}`);
+                                    }
+                                    
+                                    // Sort drugs by repurposing score (highest first)
+                                    geneRelatedDrugsWithInfo.sort((a, b) => b.repurposingScore - a.repurposingScore);
                                 }
                                 
                                 // Update gene entry with complete information
@@ -968,13 +1078,7 @@
                                     ko: relatedGeneKO,
                                     diseases: relatedGeneDiseases,
                                     drugs: drugCodes,
-                                    drugsWithInfo: geneRelatedDrugsWithInfo,
-                                    relationshipType: relatedGene.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 2 === 0 ? 
-                                        'activation' : 'inhibition',
-                                    hasSharedDisease: relatedGeneDiseases.some(disease => 
-                                        geneDiseases.some(gDisease => gDisease.code === disease.code)),
-                                    sharedDiseases: relatedGeneDiseases.filter(disease => 
-                                        geneDiseases.some(gDisease => gDisease.code === disease.code))
+                                    drugsWithInfo: geneRelatedDrugsWithInfo
                                 };
                                 
                                 debug(`Completed data for related gene ${relatedGene} (${relatedGeneName})`);
@@ -988,11 +1092,7 @@
                                     ko: [],
                                     diseases: [],
                                     drugs: [],
-                                    drugsWithInfo: [],
-                                    relationshipType: relatedGene.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 2 === 0 ? 
-                                        'activation' : 'inhibition',
-                                    hasSharedDisease: false,
-                                    sharedDiseases: []
+                                    drugsWithInfo: []
                                 };
                             });
                             
@@ -1026,7 +1126,7 @@
             
             // Enhanced _fetchDrugDetails to use parallel requests
             const originalFetchDrugDetails = keggApi._fetchDrugDetails;
-            keggApi._fetchDrugDetails = async function(drugCodes) {
+            keggApi._fetchDrugDetails = async function(drugCodes, baseGeneDiseases) {
                 // Validate drug codes and format properly
                 const validDrugCodes = drugCodes.filter(code => 
                     code && (code.startsWith('dr:') || code.match(/^D\d+$/))
@@ -1053,7 +1153,8 @@
                             const drugInfo = {
                                 code: formattedDrugCode,
                                 name: formattedDrugCode,
-                                diseases: []
+                                diseases: [],
+                                repurposingScore: 0.3 // Initialize with base repurposing score
                             };
                             
                             // Extract drug name
@@ -1132,26 +1233,8 @@
                 // Wait for all drug detail requests to complete
                 const drugInfoResults = await Promise.all(drugDetailsPromises);
                 
-                // Filter out null values (failed requests) and add repurposing scores
-                const validDrugResults = drugInfoResults.filter(info => info !== null);
-                
-                // Calculate repurposing scores for all drugs
-                const resultsWithScores = validDrugResults.map(drug => {
-                    // Base score for all drugs
-                    let repurposingScore = 2;
-                    
-                    // +5 if drug has associated diseases
-                    if (drug.diseases && drug.diseases.length > 0) {
-                        repurposingScore += 5;
-                    }
-                    
-                    // Add the score to the drug object
-                    drug.repurposingScore = repurposingScore;
-                    return drug;
-                });
-                
-                debug(`Added repurposing scores to ${resultsWithScores.length} drugs`);
-                return resultsWithScores;
+                // Filter out null values (failed requests)
+                return drugInfoResults.filter(info => info !== null);
             };
             
             // Network visualization parameters
@@ -1231,16 +1314,6 @@
                 if (geneCode) searchGene(geneCode);
             }, 300);
             
-            searchBtn.addEventListener('click', function() {
-                const geneCode = geneInput.value.trim();
-                if (!geneCode) {
-                    alert('Please enter a gene code');
-                    return;
-                }
-                
-                debouncedSearch(geneCode);
-            });
-            
             // Also allow hitting Enter to search
             geneInput.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
@@ -1250,6 +1323,9 @@
                     }
                 }
             });
+            
+            // Initialize the finder
+            const finderInstance = new KeggGeneDrugFinder();
             
             // Function to search for a gene (reusable for click events)
             async function searchGene(geneCode) {
@@ -1295,10 +1371,20 @@
                 drugCards.innerHTML = '<h3 class="gene-title">Loading drugs...</h3>';
                 
                 try {
-                    // Fetch gene data
+                    // Fetch gene data - determine if it's a gene ID or name
                     updateProgress("GENE_VERIFICATION", "Verifying gene...");
                     console.time('API request: ' + geneCode);
-                    const results = await keggApi.getRelatedGenesAndDrugs(geneCode);
+                    
+                    let results;
+                    // Check if the input is a gene ID (contains :) or a gene name
+                    if (geneCode.includes(':') || /^\d+$/.test(geneCode)) {
+                        // Looks like a gene ID
+                        results = await keggApi.getRelatedGenesAndDrugs(geneCode);
+                    } else {
+                        // Looks like a gene name
+                        results = await keggApi.processGeneByName(geneCode);
+                    }
+                    
                     console.timeEnd('API request: ' + geneCode);
                     
                     // Log overall search time
@@ -1316,9 +1402,11 @@
                         return;
                     }
                     
-                    // Store current gene code
+                    // Store current gene code (might be different from input if searched by name)
+                    const actualGeneCode = results.geneCode || geneCode;
+                    
                     currentNodeData = {
-                        centerGeneCode: geneCode,
+                        centerGeneCode: actualGeneCode,
                         results: results
                     };
                     
@@ -1331,10 +1419,10 @@
                         console.time('Render network');
                         
                         // Render network visualization
-                        renderNetwork(results, geneCode);
+                        renderNetwork(results, actualGeneCode);
                         
                         // Show gene information
-                        showGeneInfo(results, geneCode);
+                        showGeneInfo(results, actualGeneCode);
                         
                         console.timeEnd('Render network');
                         
@@ -1370,6 +1458,17 @@
                 drugCards.innerHTML = '<h3 class="gene-title">Compatible Drugs</h3><p>No data available</p>';
                 graph.style.display = 'none';
             }
+            
+            // Search button click event
+            searchBtn.addEventListener('click', function() {
+                const geneCode = geneInput.value.trim();
+                if (!geneCode) {
+                    alert('Please enter a gene code or name');
+                    return;
+                }
+                
+                searchGene(geneCode);
+            });
             
             // Object pools for SVG elements to reduce memory churn
             const nodePool = [];
@@ -1686,20 +1785,6 @@
             function showDrugCards(drugs, geneName, geneCode) {
                 console.time('Show drug cards');
                 
-                // Debug logs for repurposing scores
-                console.log(`Showing drug cards for ${geneName} (${geneCode})`);
-                console.log(`Received ${drugs ? drugs.length : 0} drugs`);
-                if (drugs && drugs.length > 0) {
-                    const drugsWithScores = drugs.filter(d => d.repurposingScore !== undefined);
-                    console.log(`Drugs with repurposing scores: ${drugsWithScores.length}/${drugs.length}`);
-                    
-                    if (drugsWithScores.length > 0) {
-                        console.log(`Sample repurposing score: ${drugsWithScores[0].repurposingScore}`);
-                    } else {
-                        console.log(`First drug:`, drugs[0]);
-                    }
-                }
-                
                 // Create a document fragment
                 const fragment = document.createDocumentFragment();
                 
@@ -1726,41 +1811,53 @@
                 
                 // Sort drugs by repurposing score if available
                 const sortedDrugs = [...drugs].sort((a, b) => {
-                    const scoreA = a.repurposingScore || 0;
-                    const scoreB = b.repurposingScore || 0;
-                    return scoreB - scoreA; // descending order
+                    if (a.repurposingScore !== undefined && b.repurposingScore !== undefined) {
+                        return b.repurposingScore - a.repurposingScore;
+                    }
+                    if (a.repurposingScore !== undefined) return -1;
+                    if (b.repurposingScore !== undefined) return 1;
+                    return 0;
                 });
                 
                 // Create drug cards
                 sortedDrugs.forEach(drug => {
-                    const card = document.createElement('div');
-                    card.className = 'drug-card';
+                    // Determine score class
+                    let scoreClass = '';
+                    if (drug.repurposingScore !== undefined) {
+                        if (drug.repurposingScore > 0.7) {
+                            scoreClass = 'high-score';
+                        } else if (drug.repurposingScore > 0.4) {
+                            scoreClass = 'medium-score';
+                        } else {
+                            scoreClass = 'low-score';
+                        }
+                    }
                     
-                    const drugNameContainer = document.createElement('div');
-                    drugNameContainer.className = 'drug-name-container';
+                    const card = document.createElement('div');
+                    card.className = `drug-card ${scoreClass}`;
                     
                     const drugName = document.createElement('div');
                     drugName.className = 'drug-name';
                     drugName.textContent = `${drug.name} (${drug.code})`;
-                    drugNameContainer.appendChild(drugName);
+                    card.appendChild(drugName);
                     
-                    // Add repurposing score if available
+                    // Add repurposing score
                     if (drug.repurposingScore !== undefined) {
-                        const scoreSpan = document.createElement('span');
-                        scoreSpan.className = 'repurposing-score';
-                        scoreSpan.textContent = `Score: ${drug.repurposingScore}`;
+                        const scoreContainer = document.createElement('div');
+                        scoreContainer.className = 'repurposing-score-container';
                         
-                        // Color coding based on score value
-                        if (drug.repurposingScore >= 10) {
-                            scoreSpan.classList.add('high-score');
-                        } else if (drug.repurposingScore >= 5) {
-                            scoreSpan.classList.add('medium-score');
-                        }
+                        const scoreLabel = document.createElement('div');
+                        scoreLabel.className = 'repurposing-score-label';
+                        scoreLabel.textContent = 'Repurposing Score:';
                         
-                        drugNameContainer.appendChild(scoreSpan);
+                        const scoreValue = document.createElement('div');
+                        scoreValue.className = 'repurposing-score-value';
+                        scoreValue.textContent = `${(drug.repurposingScore * 100).toFixed(1)}%`;
+                        
+                        scoreContainer.appendChild(scoreLabel);
+                        scoreContainer.appendChild(scoreValue);
+                        card.appendChild(scoreContainer);
                     }
-                    
-                    card.appendChild(drugNameContainer);
                     
                     if (drug.diseases && drug.diseases.length > 0) {
                         const diseaseContainer = document.createElement('div');
@@ -1791,42 +1888,6 @@
                     
                     fragment.appendChild(card);
                 });
-                
-                // Add CSS styles for repurposing score
-                if (!document.getElementById('drug-cards-style')) {
-                    const style = document.createElement('style');
-                    style.id = 'drug-cards-style';
-                    style.textContent = `
-                        .drug-name-container {
-                            display: flex;
-                            justify-content: space-between;
-                            align-items: center;
-                            margin-bottom: 8px;
-                        }
-                        .repurposing-score {
-                            padding: 2px 8px;
-                            border-radius: 4px;
-                            font-size: 0.85em;
-                            font-weight: bold;
-                            background-color: #3498db;
-                            color: white;
-                        }
-                        .high-score {
-                            background-color: #27ae60;
-                        }
-                        .medium-score {
-                            background-color: #f39c12;
-                        }
-                        .drug-card {
-                            transition: all 0.2s ease;
-                        }
-                        .drug-card:hover {
-                            transform: translateY(-5px);
-                            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-                        }
-                    `;
-                    document.head.appendChild(style);
-                }
                 
                 // Clear and append
                 drugCards.innerHTML = '';
@@ -1859,6 +1920,92 @@
                     }
                 }, 0);
             });
+
+            // Function to calculate repurposing score
+            function calculateRepurposingScore(drug, baseGeneDiseases, relatedGeneDiseases, relation = "Pathway") {
+                // Start with a variable base score between 0.15 and 0.35
+                // This creates more variation at the basic level
+                const diseaseCount = drug.diseases?.length || 0;
+                const baseScore = 0.15 + (Math.min(diseaseCount, 10) / 50);
+                let score = baseScore;
+                
+                debug(`Calculating repurposing score for drug ${drug.code} with base score ${baseScore.toFixed(2)}`);
+                
+                // Add disease-based scores - now with partial matching
+                if (baseGeneDiseases && relatedGeneDiseases && baseGeneDiseases.length > 0 && relatedGeneDiseases.length > 0) {
+                    // Create sets of disease codes for efficient comparison
+                    const baseDiseaseCodes = new Set(baseGeneDiseases.map(d => d.code));
+                    const relatedDiseaseCodes = new Set(relatedGeneDiseases.map(d => d.code));
+                    
+                    // Count matching diseases
+                    let matchCount = 0;
+                    for (const code of baseDiseaseCodes) {
+                        if (relatedDiseaseCodes.has(code)) {
+                            matchCount++;
+                        }
+                    }
+                    
+                    // Scale based on number of matches - more matches = higher score
+                    if (matchCount > 0) {
+                        const matchBonus = 0.15 + (Math.min(matchCount, 3) * 0.08);
+                        score += matchBonus;
+                        debug(`+${matchBonus.toFixed(2)} points for ${matchCount} shared diseases between genes for drug ${drug.code}`);
+                    }
+                }
+                
+                // Disease matching with drug's own diseases
+                if (drug.diseases && drug.diseases.length > 0 && (baseGeneDiseases && baseGeneDiseases.length > 0)) {
+                    const drugDiseaseCodes = new Set(drug.diseases.map(d => d.code));
+                    const baseDiseaseCodes = new Set(baseGeneDiseases.map(d => d.code));
+                    
+                    // Count matches between drug diseases and gene diseases
+                    let directMatchCount = 0;
+                    for (const code of drugDiseaseCodes) {
+                        if (baseDiseaseCodes.has(code)) {
+                            directMatchCount++;
+                        }
+                    }
+                    
+                    // Direct disease treatment bonus
+                    if (directMatchCount > 0) {
+                        const directBonus = Math.min(directMatchCount, 3) * 0.07;
+                        score += directBonus;
+                        debug(`+${directBonus.toFixed(2)} points for direct disease treatment match for drug ${drug.code}`);
+                    }
+                }
+                
+                // Adjust score based on relationship type - more nuanced adjustment
+                if (relation) {
+                    const relationLower = relation.toLowerCase();
+                    if (relationLower.includes("activ")) {
+                        // Vary activation bonus
+                        const activationBonus = 0.12;
+                        score += activationBonus;
+                        debug(`+${activationBonus.toFixed(2)} points for ${relation} relationship for drug ${drug.code}`);
+                    } else if (relationLower.includes("inhib")) {
+                        // Vary inhibition penalty
+                        const inhibPenalty = 0.08;
+                        score -= inhibPenalty;
+                        debug(`-${inhibPenalty.toFixed(2)} point for ${relation} relationship for drug ${drug.code}`);
+                    } else if (relationLower.includes("pathway")) {
+                        // Small bonus for pathway relationship
+                        const pathwayBonus = 0.05;
+                        score += pathwayBonus;
+                        debug(`+${pathwayBonus.toFixed(2)} points for pathway relationship for drug ${drug.code}`);
+                    }
+                }
+                
+                // Add a small random factor (±3%) to create more variety
+                const randomFactor = (Math.random() * 0.06) - 0.03;
+                score += randomFactor;
+                debug(`${randomFactor > 0 ? '+' : ''}${randomFactor.toFixed(2)} random variation for drug ${drug.code}`);
+                
+                // Ensure the score is within 0-1 range
+                const finalScore = Math.max(0, Math.min(1, score));
+                
+                debug(`Final repurposing score for drug ${drug.code}: ${finalScore.toFixed(2)}`);
+                return finalScore;
+            }
         });
     </script>
 </body>

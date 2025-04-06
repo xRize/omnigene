@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interactive Node Graph</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #f0f0f0;
+    }
+    svg {
+      width: 600px;
+      height: 600px;
+    }
+    .node {
+      fill: #3498db;
+      cursor: pointer;
+      transition: fill 0.3s;
+    }
+    .node:hover {
+      fill: #2980b9;
+    }
+    .link {
+      stroke: #ccc;
+      stroke-width: 4;
+      transition: stroke 0.3s, stroke-width 0.3s;
+    }
+    .link:hover {
+      stroke: #ff5733;
+      stroke-width: 6;
+    }
+    .tooltip {
+      position: absolute;
+      background-color: #333;
+      color: white;
+      padding: 5px 10px;
+      border-radius: 4px;
+      font-size: 14px;
+      pointer-events: none;
+      display: none;
+    }
+    text {
+      fill: white;
+      font-size: 14px;
+      text-anchor: middle;
+      dominant-baseline: middle;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="tooltip" id="tooltip"></div>
+  <svg id="graph">
+    <!-- Nodes and links will be generated dynamically -->
+  </svg>
+
+  <script>
+    const svg = document.getElementById("graph");
+    const tooltip = document.getElementById("tooltip");
+    const centerX = 300;
+    const centerY = 300;
+    const radius = 140; // reduced radius for closer spacing
+    const numNodes = 5;
+    const nodes = [];
+
+    // Add central node
+    nodes.push({ x: centerX, y: centerY, id: "center", label: "Center" });
+
+    // Add surrounding nodes
+    for (let i = 0; i < numNodes; i++) {
+      const angle = (2 * Math.PI / numNodes) * i - Math.PI / 2;
+      const x = centerX + radius * Math.cos(angle);
+      const y = centerY + radius * Math.sin(angle);
+      nodes.push({ x, y, id: `node${i+1}`, label: `Node ${i+1}` });
+    }
+
+    // Draw lines from center to other nodes
+    for (let i = 1; i < nodes.length; i++) {
+      const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      line.setAttribute("x1", nodes[0].x);
+      line.setAttribute("y1", nodes[0].y);
+      line.setAttribute("x2", nodes[i].x);
+      line.setAttribute("y2", nodes[i].y);
+      line.setAttribute("class", "link");
+      line.addEventListener("mouseenter", () => {
+        tooltip.innerText = `Connection to ${nodes[i].label}`;
+        tooltip.style.display = "block";
+      });
+      line.addEventListener("mouseleave", () => {
+        tooltip.style.display = "none";
+      });
+      line.addEventListener("mousemove", (e) => {
+        tooltip.style.left = e.pageX + 10 + "px";
+        tooltip.style.top = e.pageY + 10 + "px";
+      });
+      svg.appendChild(line);
+    }
+
+    // Draw nodes with labels
+    nodes.forEach(node => {
+      const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      group.style.cursor = "pointer";
+      group.addEventListener("click", () => alert(`You clicked ${node.label}`));
+
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      circle.setAttribute("cx", node.x);
+      circle.setAttribute("cy", node.y);
+      circle.setAttribute("r", 45); // increased radius for bigger circles
+      circle.setAttribute("class", "node");
+
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      text.setAttribute("x", node.x);
+      text.setAttribute("y", node.y);
+      text.textContent = node.label;
+
+      group.appendChild(circle);
+      group.appendChild(text);
+      svg.appendChild(group);
+    });
+  </script>
+</body>
+</html>

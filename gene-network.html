@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KEGG Gene Network Visualization</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f7fa;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #3494e6, #ec6ead);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 1.8rem;
+        }
+        
+        .subtitle {
+            margin-top: 5px;
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+        
+        .container {
+            display: flex;
+            flex: 1;
+            padding: 20px;
+        }
+        
+        .search-panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            display: flex;
+            align-items: center;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        
+        .input-group {
+            display: flex;
+            flex: 1;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px 0 0 4px;
+            font-size: 16px;
+            outline: none;
+        }
+        
+        button {
+            background: #3494e6;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: background 0.3s;
+            font-size: 16px;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        .main-content {
+            display: flex;
+            flex: 1;
+            max-width: 1400px;
+            margin: 20px auto;
+            width: 100%;
+        }
+        
+        .left-panel {
+            width: 300px;
+            margin-right: 20px;
+        }
+        
+        .right-panel {
+            width: 300px;
+            margin-left: 20px;
+        }
+        
+        .graph-container {
+            flex: 1;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            padding: 20px;
+            position: relative;
+            height: 600px;
+            min-width: 600px;
+            overflow: hidden;
+        }
+        
+        .gene-info {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            padding: 20px;
+            margin-bottom: 20px;
+            overflow-y: auto;
+            max-height: 600px;
+        }
+        
+        .drug-cards {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            padding: 20px;
+            height: 600px;
+            overflow-y: auto;
+        }
+        
+        .gene-title {
+            color: #2c3e50;
+            margin-top: 0;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        
+        .ko-header, .diseases-header, .drugs-header {
+            color: #3494e6;
+            font-weight: 600;
+            margin: 15px 0 5px 0;
+        }
+        
+        .ko-list, .diseases-list {
+            list-style-type: disc;
+            padding-left: 20px;
+            margin: 5px 0;
+        }
+        
+        .ko-list li, .diseases-list li {
+            margin-bottom: 5px;
+        }
+        
+        .disease-item {
+            color: #e74c3c;
+        }
+        
+        .drug-card {
+            background: #f8f9fa;
+            border-left: 4px solid #3494e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 15px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .drug-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .drug-name {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+        }
+        
+        .drug-diseases {
+            font-size: 0.9em;
+        }
+        
+        .tooltip {
+            position: fixed;
+            background-color: #333;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 14px;
+            pointer-events: none;
+            display: none;
+            z-index: 100;
+            max-width: 250px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            display: none;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        svg {
+            width: 600px;
+            height: 600px;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            margin: auto;
+        }
+        
+        .node {
+            fill: #3498db;
+            cursor: pointer;
+            transition: fill 0.3s, r 0.3s;
+        }
+        
+        .node.center {
+            fill: #e74c3c;
+        }
+        
+        .node:hover {
+            fill: #2ecc71;
+        }
+        
+        .link {
+            stroke: #ccc;
+            stroke-width: 4;
+            transition: stroke 0.3s, stroke-width 0.3s;
+        }
+        
+        .link:hover {
+            stroke: #3498db;
+            stroke-width: 6;
+        }
+        
+        .link.activation {
+            stroke: #2ecc71;
+        }
+        
+        .link.inhibition {
+            stroke: #e74c3c;
+        }
+        
+        .marker-activation {
+            fill: #2ecc71;
+        }
+        
+        .marker-inhibition {
+            fill: #e74c3c;
+        }
+        
+        .node-label {
+            fill: white;
+            font-size: 12px;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            pointer-events: none;
+        }
+        
+        .status-message {
+            position: absolute;
+            bottom: 10px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            color: #7f8c8d;
+        }
+        
+        .empty-state svg {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 20px;
+            fill: #bdc3c7;
+        }
+        
+        .graph-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>KEGG Gene Network Visualization</h1>
+        <div class="subtitle">Visualize gene relationships and associated drugs</div>
+    </header>
+    
+    <div class="search-panel">
+        <div class="input-group">
+            <input type="text" id="gene-input" placeholder="Enter gene code (e.g., hsa:5747)" value="">
+            <button id="search-btn">Visualize</button>
+        </div>
+    </div>
+    
+    <div class="main-content">
+        <div class="left-panel">
+            <div class="gene-info" id="gene-info">
+                <h3 class="gene-title">Gene Information</h3>
+                <p>Select a gene to view details</p>
+            </div>
+        </div>
+        
+        <div class="graph-container">
+            <div id="loading">
+                <div class="spinner"></div>
+            </div>
+            
+            <div id="empty-state" class="empty-state">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
+                </svg>
+                <p>Enter a gene code above to visualize its network</p>
+            </div>
+            
+            <div class="tooltip" id="tooltip"></div>
+            <div class="graph-wrapper">
+                <svg id="graph" style="display: none;"></svg>
+            </div>
+            <div class="status-message" id="status-message"></div>
+        </div>
+        
+        <div class="right-panel">
+            <div class="drug-cards" id="drug-cards">
+                <h3 class="gene-title">Compatible Drugs</h3>
+                <p>Hover over a gene node to view compatible drugs</p>
+            </div>
+        </div>
+    </div>
+    
+    <script src="kegg-gene-drug-finder.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // DOM elements
+            const geneInput = document.getElementById('gene-input');
+            const searchBtn = document.getElementById('search-btn');
+            const graph = document.getElementById('graph');
+            const tooltip = document.getElementById('tooltip');
+            const geneInfo = document.getElementById('gene-info');
+            const drugCards = document.getElementById('drug-cards');
+            const loading = document.getElementById('loading');
+            const emptyState = document.getElementById('empty-state');
+            const statusMessage = document.getElementById('status-message');
+            
+            // SVG dimensions - fixed position
+            const svgWidth = 600;
+            const svgHeight = 600;
+            const centerX = svgWidth / 2;
+            const centerY = svgHeight / 2;
+            
+            // Initialize KEGG API
+            const keggApi = new KeggAPI();
+            
+            // Network visualization parameters
+            const radius = 220; // Fixed radius
+            const nodeRadius = 65; // Increased node size
+            
+            // Store node data for reuse
+            let currentNodeData = {};
+            
+            // Add SVG defs for markers (arrows)
+            function setupSvgMarkers() {
+                const defs = document.createElementNS("http://www.w3.org/2000/svg", "defs");
+                
+                // Activation marker (arrow)
+                const activationMarker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+                activationMarker.setAttribute("id", "activation-marker");
+                activationMarker.setAttribute("viewBox", "0 0 10 10");
+                activationMarker.setAttribute("refX", "9");
+                activationMarker.setAttribute("refY", "5");
+                activationMarker.setAttribute("markerWidth", "6");
+                activationMarker.setAttribute("markerHeight", "6");
+                activationMarker.setAttribute("orient", "auto");
+                
+                const activationPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                activationPath.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+                activationPath.setAttribute("class", "marker-activation");
+                activationMarker.appendChild(activationPath);
+                
+                // Inhibition marker (T shape)
+                const inhibitionMarker = document.createElementNS("http://www.w3.org/2000/svg", "marker");
+                inhibitionMarker.setAttribute("id", "inhibition-marker");
+                inhibitionMarker.setAttribute("viewBox", "0 0 10 10");
+                inhibitionMarker.setAttribute("refX", "9");
+                inhibitionMarker.setAttribute("refY", "5");
+                inhibitionMarker.setAttribute("markerWidth", "6");
+                inhibitionMarker.setAttribute("markerHeight", "6");
+                inhibitionMarker.setAttribute("orient", "auto");
+                
+                const inhibitionPath = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                inhibitionPath.setAttribute("d", "M 0 0 L 0 10 M 0 5 L 10 5");
+                inhibitionPath.setAttribute("class", "marker-inhibition");
+                inhibitionPath.setAttribute("stroke", "#e74c3c");
+                inhibitionPath.setAttribute("stroke-width", "2");
+                inhibitionMarker.appendChild(inhibitionPath);
+                
+                defs.appendChild(activationMarker);
+                defs.appendChild(inhibitionMarker);
+                graph.appendChild(defs);
+            }
+            
+            // Search for a gene
+            searchBtn.addEventListener('click', function() {
+                const geneCode = geneInput.value.trim();
+                if (!geneCode) {
+                    alert('Please enter a gene code');
+                    return;
+                }
+                
+                searchGene(geneCode);
+            });
+            
+            // Also allow hitting Enter to search
+            geneInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    const geneCode = geneInput.value.trim();
+                    if (geneCode) {
+                        searchGene(geneCode);
+                    }
+                }
+            });
+            
+            // Function to search for a gene (reusable for click events)
+            async function searchGene(geneCode) {
+                // Show loading state
+                loading.style.display = 'flex';
+                graph.style.display = 'none';
+                emptyState.style.display = 'none';
+                geneInfo.innerHTML = '<h3 class="gene-title">Loading gene information...</h3>';
+                drugCards.innerHTML = '<h3 class="gene-title">Loading drugs...</h3>';
+                
+                try {
+                    // Fetch gene data
+                    const results = await keggApi.getRelatedGenesAndDrugs(geneCode);
+                    
+                    if (results.error) {
+                        showError(results.message || results.error);
+                        return;
+                    }
+                    
+                    // Store current gene code
+                    currentNodeData = {
+                        centerGeneCode: geneCode,
+                        results: results
+                    };
+                    
+                    // Render network visualization
+                    renderNetwork(results, geneCode);
+                    
+                    // Show gene information
+                    showGeneInfo(results, geneCode);
+                    
+                    // Hide loading state
+                    loading.style.display = 'none';
+                    graph.style.display = 'block';
+                    
+                } catch (error) {
+                    showError(`Error: ${error.message}`);
+                }
+            }
+            
+            function showError(message) {
+                loading.style.display = 'none';
+                emptyState.style.display = 'flex';
+                emptyState.querySelector('p').textContent = message;
+                geneInfo.innerHTML = '<h3 class="gene-title">Error</h3><p>' + message + '</p>';
+                drugCards.innerHTML = '<h3 class="gene-title">Compatible Drugs</h3><p>No data available</p>';
+                graph.style.display = 'none';
+            }
+            
+            function renderNetwork(data, baseGeneCode) {
+                // Clear previous graph
+                graph.innerHTML = '';
+                
+                // Set SVG dimensions explicitly
+                graph.setAttribute('width', svgWidth);
+                graph.setAttribute('height', svgHeight);
+                graph.setAttribute('viewBox', `0 0 ${svgWidth} ${svgHeight}`);
+                
+                // Add marker definitions for arrows
+                setupSvgMarkers();
+                
+                // Prepare nodes
+                const nodes = [];
+                const relatedGenes = Object.keys(data.relatedGenes);
+                
+                // Add center node (base gene)
+                const formattedGeneCode = baseGeneCode.includes(':') ? baseGeneCode : `hsa:${baseGeneCode}`;
+                nodes.push({
+                    id: formattedGeneCode,
+                    x: centerX,
+                    y: centerY,
+                    name: data.geneName,
+                    isCenter: true,
+                    ko: data.geneKO || [],
+                    diseases: data.diseases || [],
+                    drugs: data.drugsWithInfo || []
+                });
+                
+                // Add related gene nodes at fixed positions
+                if (relatedGenes.length > 0) {
+                    relatedGenes.forEach((geneCode, index) => {
+                        const geneData = data.relatedGenes[geneCode];
+                        const angle = (2 * Math.PI / relatedGenes.length) * index - Math.PI / 2;
+                        const x = centerX + radius * Math.cos(angle);
+                        const y = centerY + radius * Math.sin(angle);
+                        
+                        // Determine relationship type (placeholder logic)
+                        // In a real implementation, this would come from actual data
+                        // Here we're using a hash of the gene code to get consistent but seemingly random relationship types
+                        const relationshipType = geneCode.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) % 2 === 0 ? 'activation' : 'inhibition';
+                        
+                        nodes.push({
+                            id: geneCode,
+                            x: x,
+                            y: y,
+                            name: geneData.geneName,
+                            isCenter: false,
+                            ko: geneData.ko || [],
+                            diseases: geneData.diseases || [],
+                            drugs: geneData.drugsWithInfo || [],
+                            pathway: geneData.pathway,
+                            relation: geneData.relation || "Pathway",
+                            relationshipType: relationshipType
+                        });
+                    });
+                }
+                
+                // Draw links from center to related genes
+                for (let i = 1; i < nodes.length; i++) {
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    line.setAttribute("x1", nodes[0].x);
+                    line.setAttribute("y1", nodes[0].y);
+                    
+                    // Calculate position for the arrow to not overlap with the node
+                    const dx = nodes[i].x - nodes[0].x;
+                    const dy = nodes[i].y - nodes[0].y;
+                    const length = Math.sqrt(dx * dx + dy * dy);
+                    const endX = nodes[0].x + dx * (1 - (nodeRadius + 10) / length);
+                    const endY = nodes[0].y + dy * (1 - (nodeRadius + 10) / length);
+                    
+                    line.setAttribute("x2", endX);
+                    line.setAttribute("y2", endY);
+                    line.setAttribute("class", `link ${nodes[i].relationshipType}`);
+                    
+                    // Add appropriate marker based on relationship type
+                    if (nodes[i].relationshipType === 'activation') {
+                        line.setAttribute("marker-end", "url(#activation-marker)");
+                    } else {
+                        line.setAttribute("marker-end", "url(#inhibition-marker)");
+                    }
+                    
+                    // Add tooltip for relationship and pathway info
+                    line.addEventListener("mouseenter", () => {
+                        tooltip.innerHTML = `
+                            <strong>Relationship:</strong> ${nodes[i].relation} (${nodes[i].relationshipType})<br>
+                            <strong>Pathway:</strong> ${nodes[i].pathway || 'Unknown'}
+                        `;
+                        tooltip.style.display = "block";
+                    });
+                    
+                    line.addEventListener("mouseleave", () => {
+                        tooltip.style.display = "none";
+                    });
+                    
+                    line.addEventListener("mousemove", (e) => {
+                        const x = e.clientX;
+                        const y = e.clientY;
+                        tooltip.style.left = (x + 10) + "px";
+                        tooltip.style.top = (y + 10) + "px";
+                    });
+                    
+                    graph.appendChild(line);
+                }
+                
+                // Draw nodes with labels
+                nodes.forEach(node => {
+                    const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+                    group.dataset.geneId = node.id;
+                    
+                    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                    circle.setAttribute("cx", node.x);
+                    circle.setAttribute("cy", node.y);
+                    circle.setAttribute("r", nodeRadius);
+                    circle.setAttribute("class", node.isCenter ? "node center" : "node");
+                    
+                    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                    label.setAttribute("x", node.x);
+                    label.setAttribute("y", node.y);
+                    label.setAttribute("class", "node-label");
+                    // Truncate long gene names
+                    const displayName = node.name.length > 12 ? node.name.substring(0, 10) + "..." : node.name;
+                    label.textContent = displayName;
+                    
+                    // Add interaction events
+                    group.addEventListener("click", () => {
+                        // Make this node the center node by running a new search
+                        if (!node.isCenter) {
+                            geneInput.value = node.id;
+                            searchGene(node.id);
+                        } else {
+                            // Just show gene info if clicking center node
+                            showGeneInfo({
+                                geneName: node.name,
+                                geneKO: node.ko,
+                                diseases: node.diseases,
+                                drugsWithInfo: node.drugs
+                            }, node.id);
+                        }
+                    });
+                    
+                    group.addEventListener("mouseenter", () => {
+                        // Highlight node
+                        circle.setAttribute("r", nodeRadius * 1.1);
+                        
+                        // Show drug cards
+                        showDrugCards(node.drugs, node.name, node.id);
+                        
+                        // Show tooltip
+                        const koCount = node.ko ? node.ko.length : 0;
+                        const diseaseCount = node.diseases ? node.diseases.length : 0;
+                        const drugCount = node.drugs ? node.drugs.length : 0;
+                        
+                        tooltip.innerHTML = `
+                            <strong>${node.name}</strong> (${node.id})<br>
+                            KO: ${koCount} | Diseases: ${diseaseCount} | Drugs: ${drugCount}
+                        `;
+                        tooltip.style.display = "block";
+                    });
+                    
+                    group.addEventListener("mouseleave", () => {
+                        // Restore node size
+                        circle.setAttribute("r", nodeRadius);
+                        tooltip.style.display = "none";
+                    });
+                    
+                    group.addEventListener("mousemove", (e) => {
+                        const x = e.clientX;
+                        const y = e.clientY;
+                        tooltip.style.left = (x + 10) + "px";
+                        tooltip.style.top = (y + 10) + "px";
+                    });
+                    
+                    group.appendChild(circle);
+                    group.appendChild(label);
+                    graph.appendChild(group);
+                });
+                
+                // Show status message
+                statusMessage.textContent = `Showing ${nodes.length} genes and their relationships`;
+            }
+            
+            function showGeneInfo(data, geneCode) {
+                const koItems = data.geneKO && data.geneKO.length > 0 
+                    ? data.geneKO.map(ko => `<li>${ko.name} (${ko.id})</li>`).join('')
+                    : '<li>No KO information available</li>';
+                    
+                const diseaseItems = data.diseases && data.diseases.length > 0
+                    ? data.diseases.map(disease => `<li class="disease-item">${disease.name} (${disease.code})</li>`).join('')
+                    : '<li>No disease associations found</li>';
+                
+                geneInfo.innerHTML = `
+                    <h3 class="gene-title">${data.geneName} (${geneCode})</h3>
+                    
+                    <div class="ko-header">KEGG Orthology:</div>
+                    <ul class="ko-list">
+                        ${koItems}
+                    </ul>
+                    
+                    <div class="diseases-header">Associated Diseases:</div>
+                    <ul class="diseases-list">
+                        ${diseaseItems}
+                    </ul>
+                `;
+            }
+            
+            function showDrugCards(drugs, geneName, geneCode) {
+                if (!drugs || drugs.length === 0) {
+                    drugCards.innerHTML = `
+                        <h3 class="gene-title">Compatible Drugs</h3>
+                        <p>No compatible drugs found for ${geneName} (${geneCode})</p>
+                    `;
+                    return;
+                }
+                
+                let drugsHtml = `<h3 class="gene-title">Compatible Drugs for ${geneName}</h3>`;
+                
+                drugs.forEach(drug => {
+                    let diseasesHtml = '';
+                    
+                    if (drug.diseases && drug.diseases.length > 0) {
+                        diseasesHtml = `
+                            <div class="drug-diseases">
+                                <strong>Associated Diseases:</strong>
+                                <ul class="diseases-list">
+                                    ${drug.diseases.map(disease => 
+                                        `<li class="disease-item">${disease.name} (${disease.code})</li>`
+                                    ).join('')}
+                                </ul>
+                            </div>
+                        `;
+                    } else {
+                        diseasesHtml = '<div class="drug-diseases">No associated diseases found</div>';
+                    }
+                    
+                    drugsHtml += `
+                        <div class="drug-card">
+                            <div class="drug-name">${drug.name} (${drug.code})</div>
+                            ${diseasesHtml}
+                        </div>
+                    `;
+                });
+                
+                drugCards.innerHTML = drugsHtml;
+            }
+            
+            // Add example values for demo
+            const exampleGenes = [
+                'hsa:5747', // PTK2
+                'hsa:673',  // BRAF
+                'hsa:5594', // MAPK1
+                'hsa:3845', // KRAS
+                'hsa:10499' // NCOA2
+            ];
+            
+            const randomExample = exampleGenes[Math.floor(Math.random() * exampleGenes.length)];
+            geneInput.setAttribute('placeholder', `Enter gene code (e.g., ${randomExample})`);
+        });
+    </script>
+</body>
+</html> 
